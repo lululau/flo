@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"flowt/internal/api"
-	"flowt/internal/config"
-	"flowt/internal/tui"
+	"flo/internal/api"
+	"flo/internal/config"
+	"flo/internal/tui"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nPlease create a configuration file at ~/.flowt/config.yml with the following format:\n")
+		fmt.Fprintf(os.Stderr, "\nPlease create a configuration file at ~/.flo/config.yml with the following format:\n")
 		fmt.Fprintf(os.Stderr, `
 organization_id: "your_organization_id"
 personal_access_token: "your_personal_access_token"  # Recommended

@@ -118,7 +118,7 @@ Found 1 RUNNING+WAITING pipelines:
 
 ## 测试方法
 
-1. 启动程序：`./flowt`
+1. 启动程序：`./flo`
 2. 按 'a' 键切换到RUNNING+WAITING过滤模式
 3. 验证列表中显示正在运行或等待的pipeline
 4. 再次按 'a' 键切换回所有pipeline模式
@@ -128,7 +128,7 @@ Found 1 RUNNING+WAITING pipelines:
 如需调试，可以启用调试模式：
 
 ```bash
-FLOWT_DEBUG=1 ./flowt
+FLOWT_DEBUG=1 ./flo
 ```
 
 这将输出详细的API请求和响应信息，包括pipeline解析过程。 

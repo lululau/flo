@@ -403,7 +403,7 @@ func (c *Client) listPipelineGroupsWithToken(organizationId string) ([]PipelineG
 		req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+		req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -537,7 +537,7 @@ func (c *Client) ListPipelineGroupPipelines(organizationId string, groupId int, 
 		req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+		req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -679,7 +679,7 @@ func (c *Client) runPipelineWithToken(organizationId, pipelineIdStr string, para
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 
@@ -913,7 +913,7 @@ func (c *Client) stopPipelineRunWithToken(organizationId, pipelineId, runId stri
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1325,7 +1325,7 @@ func (c *Client) GetPipelineRunDetails(organizationId, pipelineId, pipelineRunId
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1482,7 +1482,7 @@ func (c *Client) GetPipelineJobRunLog(organizationId, pipelineId, pipelineRunId,
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1573,7 +1573,7 @@ func (c *Client) GetPipelineJobSteps(organizationId, pipelineId, pipelineRunId, 
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1634,7 +1634,7 @@ func (c *Client) GetPipelineJobStepLog(organizationId, pipelineId, pipelineRunId
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1986,7 +1986,7 @@ func (c *Client) listPipelineRunsPaginatedWithToken(organizationId, pipelineId s
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2155,7 +2155,7 @@ func (c *Client) fetchPipelineRunsPage(path string) ([]PipelineRun, bool, error)
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2500,7 +2500,7 @@ func (c *Client) makeTokenRequest(method, path string, body interface{}) (map[st
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2575,7 +2575,7 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 		req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+		req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -2867,7 +2867,7 @@ func (c *Client) ListPipelineJobHistorys(organizationId, pipelineId, category, i
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2963,7 +2963,7 @@ func (c *Client) GetVMDeployOrder(organizationId, pipelineId, deployOrderId stri
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -3083,7 +3083,7 @@ func (c *Client) GetVMDeployMachineLog(organizationId, pipelineId, deployOrderId
 	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+	req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -3191,7 +3191,7 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 		req.Header.Set("x-yunxiao-token", c.personalAccessToken)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+		req.Header.Set("User-Agent", "flo-aliyun-devops-client/1.0")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {

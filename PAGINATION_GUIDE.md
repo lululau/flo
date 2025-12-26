@@ -57,7 +57,7 @@ Run History - 流水线名称 (Page 2/5) [/] to navigate, 0 to go to first page
 3. 开启调试模式查看详细错误信息：
    ```bash
    export FLOWT_DEBUG=1
-   ./flowt
+   ./flo
    ```
 
 ## 最新修复

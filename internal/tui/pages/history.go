@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"flowt/internal/api"
-	"flowt/internal/tui/components"
-	"flowt/internal/tui/types"
+	"flo/internal/api"
+	"flo/internal/tui/components"
+	"flo/internal/tui/types"
 )
 
 // HistoryModel represents the run history page

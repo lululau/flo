@@ -225,7 +225,7 @@ if !preserveOriginalStatus {
 
 ### 编译测试
 ```bash
-go build -o flowt cmd/aliyun-pipelines-tui/main.go  # ✅ 成功
+go build -o flo cmd/aliyun-pipelines-tui/main.go  # ✅ 成功
 go vet ./...                                        # ✅ 无问题
 ```
 

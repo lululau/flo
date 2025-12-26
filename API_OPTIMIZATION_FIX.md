@@ -135,7 +135,7 @@ if logs != "" && (strings.Contains(logs, "Status: SUCCESS") ||
 ## 测试验证
 
 ### 验证方法
-1. 编译检查: `go build -o flowt cmd/aliyun-pipelines-tui/main.go` ✅
+1. 编译检查: `go build -o flo cmd/aliyun-pipelines-tui/main.go` ✅
 2. 功能测试: 进入历史运行记录查看日志，确认只有1次API调用
 3. 状态判断: 验证自动刷新逻辑在运行中和已完成的流水线上都正常工作
 

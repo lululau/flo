@@ -1,4 +1,4 @@
-module flowt
+module flo
 
 go 1.24.0
 

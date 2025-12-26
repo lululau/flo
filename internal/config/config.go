@@ -39,14 +39,14 @@ func (c *Config) GetPerPage() int {
 	return c.PerPage
 }
 
-// LoadConfig loads configuration from ~/.flowt/config.yml
+// LoadConfig loads configuration from ~/.flo/config.yml
 func LoadConfig() (*Config, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	configPath := filepath.Join(homeDir, ".flowt", "config.yml")
+	configPath := filepath.Join(homeDir, ".flo", "config.yml")
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -68,14 +68,14 @@ func LoadConfig() (*Config, error) {
 	return &config, nil
 }
 
-// SaveConfig saves configuration to ~/.flowt/config.yml
+// SaveConfig saves configuration to ~/.flo/config.yml
 func SaveConfig(config *Config) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	configPath := filepath.Join(homeDir, ".flowt", "config.yml")
+	configPath := filepath.Join(homeDir, ".flo", "config.yml")
 
 	// Ensure config directory exists
 	configDir := filepath.Dir(configPath)

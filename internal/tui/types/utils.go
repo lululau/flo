@@ -86,7 +86,7 @@ func OpenInEditorCmd(content, editor string) tea.Cmd {
 
 	// Create a temporary file synchronously before returning the command
 	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flo_logs_%d.txt", time.Now().Unix()))
 
 	err := os.WriteFile(tmpFile, []byte(content), 0644)
 	if err != nil {
@@ -133,7 +133,7 @@ func OpenInPagerCmd(content, pager string) tea.Cmd {
 
 	// Create a temporary file synchronously before returning the command
 	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flo_logs_%d.txt", time.Now().Unix()))
 
 	err := os.WriteFile(tmpFile, []byte(content), 0644)
 	if err != nil {

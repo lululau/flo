@@ -1,6 +1,6 @@
 # 构建说明
 
-本文档说明如何构建 flowt 的多平台二进制文件。
+本文档说明如何构建 flo 的多平台二进制文件。
 
 ## 支持的平台
 
@@ -59,19 +59,19 @@
 
 ```bash
 # macOS Intel
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o flowt-macos-intel ./cmd/aliyun-pipelines-tui
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o flo-macos-intel ./cmd/aliyun-pipelines-tui
 
 # macOS Apple Silicon
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o flowt-macos-arm64 ./cmd/aliyun-pipelines-tui
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o flo-macos-arm64 ./cmd/aliyun-pipelines-tui
 
 # Linux x64
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o flowt-linux-x64 ./cmd/aliyun-pipelines-tui
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o flo-linux-x64 ./cmd/aliyun-pipelines-tui
 
 # Linux ARM64
-GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o flowt-linux-arm64 ./cmd/aliyun-pipelines-tui
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o flo-linux-arm64 ./cmd/aliyun-pipelines-tui
 
 # Windows x64
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o flowt-windows-x64.exe ./cmd/aliyun-pipelines-tui
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o flo-windows-x64.exe ./cmd/aliyun-pipelines-tui
 ```
 
 ## 构建选项说明
@@ -93,15 +93,15 @@ GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o flowt-windows-x64.exe ./c
 ### 文件命名规范
 
 ```
-flowt-{version}-{platform}-{arch}[.exe]
+flo-{version}-{platform}-{arch}[.exe]
 ```
 
 示例：
-- `flowt-v1.0.0-macos-intel-x64`
-- `flowt-v1.0.0-macos-aarch64`
-- `flowt-v1.0.0-linux-x64`
-- `flowt-v1.0.0-linux-arm64`
-- `flowt-v1.0.0-windows-x64.exe`
+- `flo-v1.0.0-macos-intel-x64`
+- `flo-v1.0.0-macos-aarch64`
+- `flo-v1.0.0-linux-x64`
+- `flo-v1.0.0-linux-arm64`
+- `flo-v1.0.0-windows-x64.exe`
 
 ### 校验和文件
 
@@ -155,10 +155,10 @@ chmod +x scripts/build-all.sh
 
 ```bash
 # 启用详细输出
-go build -v -ldflags="-s -w" -o flowt ./cmd/aliyun-pipelines-tui
+go build -v -ldflags="-s -w" -o flo ./cmd/aliyun-pipelines-tui
 
 # 查看构建信息
-go version -m flowt
+go version -m flo
 ```
 
 ## 性能优化
@@ -167,10 +167,10 @@ go version -m flowt
 
 ```bash
 # 使用 UPX 压缩（可选）
-upx --best flowt
+upx --best flo
 
 # 去除更多调试信息
-go build -ldflags="-s -w -buildid=" -trimpath -o flowt ./cmd/aliyun-pipelines-tui
+go build -ldflags="-s -w -buildid=" -trimpath -o flo ./cmd/aliyun-pipelines-tui
 ```
 
 ### 构建缓存

@@ -9,9 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"flowt/internal/config"
-	"flowt/internal/tui/components"
-	"flowt/internal/tui/types"
+	"flo/internal/config"
+	"flo/internal/tui/components"
+	"flo/internal/tui/types"
 )
 
 // LogsModel represents the logs view page with stage-tabs layout.

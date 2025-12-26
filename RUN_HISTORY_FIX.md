@@ -36,7 +36,7 @@ Error fetching runs: all pipeline endpoints failed, Last error: API request fail
 ## 使用方法
 
 ### 1. 配置文件
-确保 `~/.flowt/config.yml` 配置正确：
+确保 `~/.flo/config.yml` 配置正确：
 ```yaml
 auth_method: "personal_access_token"
 personal_access_token: "your_token_here"
@@ -47,7 +47,7 @@ debug: false
 
 ### 2. 运行应用
 ```bash
-./flowt
+./flo
 ```
 
 ### 3. 查看运行历史
@@ -65,7 +65,7 @@ debug: false
 如果遇到问题，可以开启调试模式：
 ```bash
 export FLOWT_DEBUG=1
-./flowt
+./flo
 ```
 
 调试信息会保存到 `logs/api_debug.log` 文件中。

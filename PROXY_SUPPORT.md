@@ -1,6 +1,6 @@
 # HTTP/HTTPS 代理支持
 
-flowt 程序现在支持通过环境变量配置 HTTP 和 HTTPS 代理，这对于在企业网络环境中使用代理服务器访问阿里云 API 非常有用。
+flo 程序现在支持通过环境变量配置 HTTP 和 HTTPS 代理，这对于在企业网络环境中使用代理服务器访问阿里云 API 非常有用。
 
 ## 支持的环境变量
 
@@ -35,7 +35,7 @@ https://proxy.example.com:8443
 ```bash
 export http_proxy=http://proxy.company.com:8080
 export https_proxy=http://proxy.company.com:8080
-./flowt
+./flo
 ```
 
 ### 2. 设置带认证的代理
@@ -43,7 +43,7 @@ export https_proxy=http://proxy.company.com:8080
 ```bash
 export http_proxy=http://user:pass@proxy.company.com:8080
 export https_proxy=http://user:pass@proxy.company.com:8080
-./flowt
+./flo
 ```
 
 ### 3. 设置不同的 HTTP 和 HTTPS 代理
@@ -51,7 +51,7 @@ export https_proxy=http://user:pass@proxy.company.com:8080
 ```bash
 export http_proxy=http://http-proxy.company.com:8080
 export https_proxy=http://https-proxy.company.com:8443
-./flowt
+./flo
 ```
 
 ### 4. 排除特定地址不使用代理
@@ -60,7 +60,7 @@ export https_proxy=http://https-proxy.company.com:8443
 export http_proxy=http://proxy.company.com:8080
 export https_proxy=http://proxy.company.com:8080
 export no_proxy=localhost,127.0.0.1,*.local
-./flowt
+./flo
 ```
 
 ## 认证方式支持
@@ -85,7 +85,7 @@ export no_proxy=localhost,127.0.0.1,*.local
 ```bash
 export FLOWT_DEBUG=1
 export http_proxy=http://proxy.company.com:8080
-./flowt
+./flo
 ```
 
 调试模式下，程序会在日志中输出代理配置信息，例如：

@@ -27,7 +27,7 @@ export http_proxy=http://username:password@proxy.company.com:8080
 export https_proxy=http://username:password@proxy.company.com:8080
 
 # 运行程序
-./flowt
+./flo
 ```
 
 支持的环境变量：
@@ -42,16 +42,16 @@ export https_proxy=http://username:password@proxy.company.com:8080
 ### 从源码编译
 
 ```bash
-git clone https://github.com/your-username/flowt.git
-cd flowt
-go build -o flowt ./cmd/aliyun-pipelines-tui
+git clone https://github.com/your-username/flo.git
+cd flo
+go build -o flo ./cmd/aliyun-pipelines-tui
 ```
 
 ## 配置
 
 ### 配置文件位置
 
-创建配置文件 `~/.flowt/config.yml`：
+创建配置文件 `~/.flo/config.yml`：
 
 ```yaml
 # 企业 ID（组织 ID）- 必填
@@ -92,14 +92,14 @@ bookmarks:
 
 ```bash
 # 启动程序
-./flowt
+./flo
 
 # 启用调试模式
-FLOWT_DEBUG=1 ./flowt
+FLOWT_DEBUG=1 ./flo
 
 # 使用代理
 export http_proxy=http://proxy.company.com:8080
-./flowt
+./flo
 ```
 
 ## 快捷键说明
@@ -185,7 +185,7 @@ export http_proxy=http://proxy.company.com:8080
 ### 项目结构
 
 ```
-flowt/
+flo/
 ├── cmd/aliyun-pipelines-tui/    # 主程序入口
 ├── internal/
 │   ├── api/                     # API 客户端
@@ -199,10 +199,10 @@ flowt/
 
 ```bash
 # 开发构建
-go build -o flowt ./cmd/aliyun-pipelines-tui
+go build -o flo ./cmd/aliyun-pipelines-tui
 
 # 生产构建
-go build -ldflags="-s -w" -o flowt ./cmd/aliyun-pipelines-tui
+go build -ldflags="-s -w" -o flo ./cmd/aliyun-pipelines-tui
 ```
 
 ### 调试
@@ -210,7 +210,7 @@ go build -ldflags="-s -w" -o flowt ./cmd/aliyun-pipelines-tui
 ```bash
 # 启用调试日志
 export FLOWT_DEBUG=1
-./flowt
+./flo
 
 # 查看 API 调试日志
 tail -f logs/api_debug.log
@@ -221,7 +221,7 @@ tail -f logs/api_debug.log
 ### 常见问题
 
 1. **配置文件未找到**
-   - 确保在 `~/.flowt/config.yml` 创建配置文件
+   - 确保在 `~/.flo/config.yml` 创建配置文件
    - 参考 `config.yml.example` 示例
 
 2. **认证失败**

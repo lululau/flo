@@ -1,5 +1,5 @@
 # Aliyun DevOps Pipelines TUI 配置文件示例
-# 请将此文件复制到 ~/.flowt/config.yml 并填入正确的值
+# 请将此文件复制到 ~/.flo/config.yml 并填入正确的值
 
 # 企业 ID（组织 ID）- 必填
 # 可在阿里云云效控制台中找到

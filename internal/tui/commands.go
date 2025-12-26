@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"flowt/internal/api"
-	"flowt/internal/tui/types"
+	"flo/internal/api"
+	"flo/internal/tui/types"
 )
 
 // LoadPipelinesCmd loads pipelines from the API

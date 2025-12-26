@@ -8,11 +8,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"flowt/internal/api"
-	"flowt/internal/config"
-	"flowt/internal/tui/components"
-	"flowt/internal/tui/pages"
-	"flowt/internal/tui/types"
+	"flo/internal/api"
+	"flo/internal/config"
+	"flo/internal/tui/components"
+	"flo/internal/tui/pages"
+	"flo/internal/tui/types"
 )
 
 // Model is the root application model

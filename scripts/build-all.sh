@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Build script for flowt - Multi-platform binary builder
+# Build script for flo - Multi-platform binary builder
 # Usage: ./scripts/build-all.sh [version]
 
 set -e
 
 VERSION=${1:-"dev"}
 BUILD_DIR="dist"
-BINARY_NAME="flowt"
+BINARY_NAME="flo"
 
 # Colors for output
 RED='\033[0;31m'
@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🚀 Building flowt v${VERSION} for multiple platforms...${NC}"
+echo -e "${BLUE}🚀 Building flo v${VERSION} for multiple platforms...${NC}"
 
 # Create build directory
 mkdir -p ${BUILD_DIR}

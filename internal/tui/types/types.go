@@ -3,7 +3,7 @@ package types
 import (
 	"strings"
 
-	"flowt/internal/api"
+	"flo/internal/api"
 	"github.com/charmbracelet/lipgloss"
 )
 
