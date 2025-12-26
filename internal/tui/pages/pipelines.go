@@ -248,9 +248,13 @@ func (m *PipelinesModel) applyFilters() {
 		}
 
 		// Apply status filter (running/waiting)
+		// Check both Status and LastRunStatus since different APIs populate different fields
 		if m.filterMode == types.FilterModeRunningWaiting {
-			status := strings.ToUpper(p.LastRunStatus)
-			if status != "RUNNING" && status != "QUEUED" && status != "INIT" && status != "WAITING" {
+			status := strings.ToUpper(p.Status)
+			lastRunStatus := strings.ToUpper(p.LastRunStatus)
+			isRunningOrWaiting := status == "RUNNING" || status == "QUEUED" || status == "INIT" || status == "WAITING" ||
+				lastRunStatus == "RUNNING" || lastRunStatus == "QUEUED" || lastRunStatus == "INIT" || lastRunStatus == "WAITING"
+			if !isRunningOrWaiting {
 				continue
 			}
 		}
@@ -480,8 +484,18 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 			} else {
 				m.filterMode = types.FilterModeRunningWaiting
 			}
-			m.applyFilters()
+			// Request reload from server with new filter - server-side filtering is more reliable
+			m.loading = true
+			m.spinner = m.spinner.SetActive(true)
+			m.spinner = m.spinner.SetMessage("Loading pipelines...")
 			m.updateModeline()
+			return m, func() tea.Msg {
+				return types.ReloadPipelinesWithFilterMsg{
+					FilterMode: m.filterMode,
+					ViewMode:   m.viewMode,
+					GroupID:    m.groupID,
+				}
+			}
 
 		case key.Matches(msg, m.keys.SwitchToGroups):
 			return m, func() tea.Msg {

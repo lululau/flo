@@ -306,6 +306,13 @@ type FilterChangedMsg struct {
 	FilterMode FilterMode
 }
 
+// ReloadPipelinesWithFilterMsg requests reloading pipelines with the current filter
+type ReloadPipelinesWithFilterMsg struct {
+	FilterMode FilterMode
+	ViewMode   ViewMode
+	GroupID    string
+}
+
 // BookmarkToggledMsg is sent when a bookmark is toggled
 type BookmarkToggledMsg struct {
 	PipelineName string

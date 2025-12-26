@@ -137,6 +137,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, LoadGroupPipelinesCmd(m.client, m.organizationID, msg.GroupID)
 
+	case types.ReloadPipelinesWithFilterMsg:
+		// Handle filter change - reload from server with status filter
+		var statusList []string
+		if msg.FilterMode == types.FilterModeRunningWaiting {
+			statusList = []string{"RUNNING", "WAITING"}
+		}
+
+		if msg.ViewMode == types.ViewModePipelinesInGroup && msg.GroupID != "" {
+			return m, LoadGroupPipelinesWithStatusCmd(m.client, m.organizationID, msg.GroupID, statusList)
+		}
+		return m, LoadPipelinesWithStatusCmd(m.client, m.organizationID, statusList)
+
 	case types.LoadBranchInfoMsg:
 		// Load branch info for the run dialog
 		return m, LoadBranchInfoCmd(m.client, m.organizationID, msg.PipelineID)

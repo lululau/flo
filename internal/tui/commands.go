@@ -14,8 +14,13 @@ import (
 
 // LoadPipelinesCmd loads pipelines from the API
 func LoadPipelinesCmd(client *api.Client, organizationID string) tea.Cmd {
+	return LoadPipelinesWithStatusCmd(client, organizationID, nil)
+}
+
+// LoadPipelinesWithStatusCmd loads pipelines from the API with optional status filter
+func LoadPipelinesWithStatusCmd(client *api.Client, organizationID string, statusList []string) tea.Cmd {
 	return func() tea.Msg {
-		pipelines, err := client.ListPipelinesWithStatus(organizationID, nil)
+		pipelines, err := client.ListPipelinesWithStatus(organizationID, statusList)
 		if err != nil {
 			return types.ErrorMsg{Err: fmt.Errorf("failed to load pipelines: %w", err)}
 		}
@@ -71,13 +76,26 @@ func LoadGroupsCmd(client *api.Client, organizationID string) tea.Cmd {
 
 // LoadGroupPipelinesCmd loads pipelines for a specific group
 func LoadGroupPipelinesCmd(client *api.Client, organizationID, groupID string) tea.Cmd {
+	return LoadGroupPipelinesWithStatusCmd(client, organizationID, groupID, nil)
+}
+
+// LoadGroupPipelinesWithStatusCmd loads pipelines for a specific group with optional status filter
+func LoadGroupPipelinesWithStatusCmd(client *api.Client, organizationID, groupID string, statusList []string) tea.Cmd {
 	return func() tea.Msg {
 		groupIDInt, err := strconv.Atoi(groupID)
 		if err != nil {
 			return types.ErrorMsg{Err: fmt.Errorf("invalid group ID: %w", err)}
 		}
 
-		pipelines, err := client.ListPipelineGroupPipelines(organizationID, groupIDInt, nil)
+		// Build options map for the API call
+		var options map[string]interface{}
+		if len(statusList) > 0 {
+			options = map[string]interface{}{
+				"statusList": strings.Join(statusList, ","),
+			}
+		}
+
+		pipelines, err := client.ListPipelineGroupPipelines(organizationID, groupIDInt, options)
 		if err != nil {
 			return types.ErrorMsg{Err: fmt.Errorf("failed to load group pipelines: %w", err)}
 		}
