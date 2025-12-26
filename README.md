@@ -44,7 +44,7 @@ export https_proxy=http://username:password@proxy.company.com:8080
 ```bash
 git clone https://github.com/your-username/flo.git
 cd flo
-go build -o flo ./cmd/aliyun-pipelines-tui
+go build -o flo ./cmd/flo
 ```
 
 ## 配置

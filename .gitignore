@@ -45,7 +45,7 @@ go.work
 
 # End of https://www.toptal.com/developers/gitignore/api/Go,VisualStudioCode
 
-/flowt
+/flo
 /logs/
 
 /test_pipeline_groups*
