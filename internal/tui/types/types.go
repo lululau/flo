@@ -268,6 +268,11 @@ type BranchSelectedMsg struct {
 	RepositoryURL string
 }
 
+// LoadBranchInfoMsg requests loading branch info for a pipeline
+type LoadBranchInfoMsg struct {
+	PipelineID string
+}
+
 // BranchInfoLoadedMsg is sent when branch info is loaded
 type BranchInfoLoadedMsg struct {
 	DefaultBranch  string

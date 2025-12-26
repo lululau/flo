@@ -137,6 +137,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, LoadGroupPipelinesCmd(m.client, m.organizationID, msg.GroupID)
 
+	case types.LoadBranchInfoMsg:
+		// Load branch info for the run dialog
+		return m, LoadBranchInfoCmd(m.client, m.organizationID, msg.PipelineID)
+
 	case types.BranchSelectedMsg:
 		// Handle branch selection for running pipeline
 		var pipelineID string

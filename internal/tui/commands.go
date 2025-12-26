@@ -209,6 +209,30 @@ func AutoRefreshTickCmd(interval time.Duration) tea.Cmd {
 	})
 }
 
+// LoadBranchInfoCmd loads the default branch info for a pipeline
+func LoadBranchInfoCmd(client *api.Client, organizationID, pipelineID string) tea.Cmd {
+	return func() tea.Msg {
+		defaultBranch := "master" // Fallback default
+		repositoryURLs := make(map[string]string)
+
+		// Try to get latest run information to extract branch and repository information
+		latestRunInfo, err := client.GetLatestPipelineRunInfo(organizationID, pipelineID)
+		if err == nil && latestRunInfo != nil && len(latestRunInfo.RepositoryURLs) > 0 {
+			repositoryURLs = latestRunInfo.RepositoryURLs
+			// Use the first repository's branch as default
+			for _, branch := range latestRunInfo.RepositoryURLs {
+				defaultBranch = branch
+				break
+			}
+		}
+
+		return types.BranchInfoLoadedMsg{
+			DefaultBranch:  defaultBranch,
+			RepositoryURLs: repositoryURLs,
+		}
+	}
+}
+
 // Helper functions
 
 func formatRunOverview(details *api.PipelineRunDetails) string {
