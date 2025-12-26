@@ -109,290 +109,6 @@ func LoadHistoryCmd(client *api.Client, organizationID, pipelineID string, page,
 	}
 }
 
-// LoadLogsCmd loads logs for a pipeline run
-func LoadLogsCmd(client *api.Client, organizationID, pipelineID, runID string) tea.Cmd {
-	return func() tea.Msg {
-		// Get run details
-		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
-		if err != nil {
-			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
-		}
-
-		// Format logs
-		var logContent strings.Builder
-		logContent.WriteString(formatRunOverview(details))
-
-		totalJobs := countTotalJobs(details)
-		currentJob := 0
-
-		for _, stage := range details.Stages {
-			logContent.WriteString(fmt.Sprintf("\n=== Stage: %s ===\n", stage.Name))
-
-			for _, job := range stage.Jobs {
-				currentJob++
-				logContent.WriteString(fmt.Sprintf("\n--- Job: %s (Status: %s) ---\n", job.Name, job.Status))
-
-				// Check if this is a VM deployment job
-				if isVMDeploymentJob(&job) {
-					vmLogs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
-					if err != nil {
-						logContent.WriteString(fmt.Sprintf("Failed to get VM deployment logs: %s\n", err))
-					} else {
-						logContent.WriteString(vmLogs)
-					}
-				} else {
-					// Regular job log
-					jobIDStr := fmt.Sprintf("%d", job.ID)
-					jobLog, err := client.GetPipelineJobRunLog(organizationID, pipelineID, runID, jobIDStr)
-					if err != nil {
-						logContent.WriteString(fmt.Sprintf("Failed to get job log: %s\n", err))
-					} else {
-						logContent.WriteString(jobLog + "\n")
-					}
-				}
-			}
-		}
-
-		return types.LogsAPILoadedMsg{
-			Details:    details,
-			LogContent: logContent.String(),
-			Status:     details.Status,
-			CurrentJob: currentJob,
-			TotalJobs:  totalJobs,
-			IsComplete: true,
-		}
-	}
-}
-
-// LoadLogsWithStreamStateCmd loads logs and initializes the stream state for incremental fetching
-// This should be used for the initial load when viewing logs for a running pipeline
-func LoadLogsWithStreamStateCmd(client *api.Client, organizationID, pipelineID, runID string) tea.Cmd {
-	return func() tea.Msg {
-		// Get run details
-		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
-		if err != nil {
-			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
-		}
-
-		// Initialize stream state
-		streamState := types.NewLogStreamState(pipelineID, runID)
-
-		// Format logs and build stream state
-		var logContent strings.Builder
-		logContent.WriteString(formatRunOverview(details))
-
-		totalJobs := countTotalJobs(details)
-		currentJob := 0
-
-		for _, stage := range details.Stages {
-			logContent.WriteString(fmt.Sprintf("\n=== Stage: %s ===\n", stage.Name))
-
-			for _, job := range stage.Jobs {
-				currentJob++
-				logContent.WriteString(fmt.Sprintf("\n--- Job: %s (Status: %s) ---\n", job.Name, job.Status))
-
-				// Create job log state
-				jobState := &types.JobLogState{
-					JobId:      job.ID,
-					JobName:    job.Name,
-					StageIndex: stage.Index,
-					StageName:  stage.Name,
-					Steps:      make(map[int]*types.StepLogState),
-					IsComplete: job.Status == "SUCCESS" || job.Status == "FAILED" || job.Status == "CANCELED",
-				}
-
-				// Check if this is a VM deployment job
-				if isVMDeploymentJob(&job) {
-					vmLogs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
-					if err != nil {
-						logContent.WriteString(fmt.Sprintf("Failed to get VM deployment logs: %s\n", err))
-					} else {
-						logContent.WriteString(vmLogs)
-					}
-					// VM deployment jobs don't support incremental fetching
-				} else {
-					// Get job steps for incremental log support
-					jobIDStr := fmt.Sprintf("%d", job.ID)
-					jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
-					if err == nil && jobSteps != nil {
-						// Fetch logs for each step and track positions
-						for _, step := range jobSteps.BuildProcessNodes {
-							stepLogResult, err := client.GetPipelineJobStepLog(
-								organizationID, pipelineID, runID, jobIDStr,
-								step.StepIndex, jobSteps.BuildId, 0, 100000, // Large initial limit
-							)
-							
-							if err == nil && stepLogResult != nil {
-								if stepLogResult.Logs != "" {
-									logContent.WriteString(fmt.Sprintf("[Step: %s]\n", step.StepName))
-									logContent.WriteString(stepLogResult.Logs)
-									if !strings.HasSuffix(stepLogResult.Logs, "\n") {
-										logContent.WriteString("\n")
-									}
-								}
-								
-								// Track step state for incremental fetching
-								jobState.Steps[step.StepIndex] = &types.StepLogState{
-									StepIndex: step.StepIndex,
-									BuildId:   jobSteps.BuildId,
-									LastPos:   stepLogResult.Last,
-									HasMore:   stepLogResult.More,
-								}
-							}
-						}
-					} else {
-						// Fallback to regular job log if steps API fails
-						jobLog, err := client.GetPipelineJobRunLog(organizationID, pipelineID, runID, jobIDStr)
-						if err != nil {
-							logContent.WriteString(fmt.Sprintf("Failed to get job log: %s\n", err))
-						} else {
-							logContent.WriteString(jobLog + "\n")
-						}
-					}
-				}
-
-				streamState.Jobs[job.ID] = jobState
-			}
-		}
-
-		streamState.Initialized = true
-
-		return types.LogsAPILoadedMsg{
-			Details:     details,
-			LogContent:  logContent.String(),
-			Status:      details.Status,
-			CurrentJob:  currentJob,
-			TotalJobs:   totalJobs,
-			IsComplete:  true,
-			StreamState: streamState,
-		}
-	}
-}
-
-// LoadLogsIncrementalCmd loads only the new log content since the last fetch
-// This is much more efficient for running pipelines as it only fetches incremental data
-func LoadLogsIncrementalCmd(client *api.Client, organizationID string, streamState *types.LogStreamState) tea.Cmd {
-	return func() tea.Msg {
-		if streamState == nil || !streamState.Initialized {
-			// Fall back to full load if no stream state
-			return types.ErrorMsg{Err: fmt.Errorf("stream state not initialized")}
-		}
-
-		pipelineID := streamState.PipelineID
-		runID := streamState.RunID
-
-		// Get current run details to check status
-		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
-		if err != nil {
-			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
-		}
-
-		var incrementalContent strings.Builder
-		hasNewContent := false
-
-		// Iterate through stages and jobs to fetch incremental logs
-		for _, stage := range details.Stages {
-			for _, job := range stage.Jobs {
-				jobState, exists := streamState.Jobs[job.ID]
-				
-				// Skip if job was already complete
-				if exists && jobState.IsComplete {
-					continue
-				}
-
-				// Create job state if it doesn't exist (new job)
-				if !exists {
-					jobState = &types.JobLogState{
-						JobId:      job.ID,
-						JobName:    job.Name,
-						StageIndex: stage.Index,
-						StageName:  stage.Name,
-						Steps:      make(map[int]*types.StepLogState),
-						IsComplete: false,
-					}
-					streamState.Jobs[job.ID] = jobState
-					
-					// Write new job header
-					incrementalContent.WriteString(fmt.Sprintf("\n=== Stage: %s ===\n", stage.Name))
-					incrementalContent.WriteString(fmt.Sprintf("\n--- Job: %s (Status: %s) ---\n", job.Name, job.Status))
-					hasNewContent = true
-				}
-
-				// Skip VM deployment jobs for incremental (they don't support it well)
-				if isVMDeploymentJob(&job) {
-					continue
-				}
-
-				// Get steps for this job
-				jobIDStr := fmt.Sprintf("%d", job.ID)
-				jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
-				if err != nil {
-					continue
-				}
-
-				// Fetch incremental logs for each step
-				for _, step := range jobSteps.BuildProcessNodes {
-					stepState, stepExists := jobState.Steps[step.StepIndex]
-					
-					var offset int64 = 0
-					if stepExists {
-						// Skip if no more logs expected
-						if !stepState.HasMore && stepState.LastPos > 0 {
-							continue
-						}
-						offset = stepState.LastPos
-					}
-
-					// Fetch incremental log content
-					stepLogResult, err := client.GetPipelineJobStepLog(
-						organizationID, pipelineID, runID, jobIDStr,
-						step.StepIndex, jobSteps.BuildId, offset, 50000,
-					)
-					
-					if err != nil {
-						continue
-					}
-
-					if stepLogResult.Logs != "" {
-						// Add step header if this is a new step
-						if !stepExists {
-							incrementalContent.WriteString(fmt.Sprintf("[Step: %s]\n", step.StepName))
-						}
-						incrementalContent.WriteString(stepLogResult.Logs)
-						if !strings.HasSuffix(stepLogResult.Logs, "\n") {
-							incrementalContent.WriteString("\n")
-						}
-						hasNewContent = true
-					}
-
-					// Update step state
-					if !stepExists {
-						jobState.Steps[step.StepIndex] = &types.StepLogState{
-							StepIndex: step.StepIndex,
-							BuildId:   jobSteps.BuildId,
-							LastPos:   stepLogResult.Last,
-							HasMore:   stepLogResult.More,
-						}
-					} else {
-						stepState.LastPos = stepLogResult.Last
-						stepState.HasMore = stepLogResult.More
-					}
-				}
-
-				// Update job completion state
-				jobState.IsComplete = job.Status == "SUCCESS" || job.Status == "FAILED" || job.Status == "CANCELED"
-			}
-		}
-
-		return types.LogsIncrementalLoadedMsg{
-			IncrementalContent: incrementalContent.String(),
-			Status:             details.Status,
-			StreamState:        streamState,
-			HasNewContent:      hasNewContent,
-		}
-	}
-}
-
 // RunPipelineCmd runs a pipeline
 func RunPipelineCmd(client *api.Client, organizationID, pipelineID, branch string) tea.Cmd {
 	return func() tea.Msg {
@@ -462,51 +178,6 @@ func LoadBranchInfoCmd(client *api.Client, organizationID, pipelineID string) te
 	}
 }
 
-// Helper functions
-
-func formatRunOverview(details *api.PipelineRunDetails) string {
-	var sb strings.Builder
-
-	sb.WriteString("╔══════════════════════════════════════════════════════════════╗\n")
-	sb.WriteString(fmt.Sprintf("║  Pipeline Run #%d\n", details.PipelineRunID))
-	sb.WriteString(fmt.Sprintf("║  Status: %s\n", details.Status))
-
-	if details.CreateTime > 0 {
-		t := time.Unix(details.CreateTime/1000, 0)
-		sb.WriteString(fmt.Sprintf("║  Created: %s\n", t.Local().Format("2006-01-02 15:04:05")))
-	}
-
-	if details.UpdateTime > 0 && details.CreateTime > 0 {
-		duration := time.Duration(details.UpdateTime-details.CreateTime) * time.Millisecond
-		sb.WriteString(fmt.Sprintf("║  Duration: %s\n", formatDurationPretty(duration)))
-	}
-
-	sb.WriteString("╚══════════════════════════════════════════════════════════════╝\n")
-
-	return sb.String()
-}
-
-func formatDurationPretty(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%.0f seconds", d.Seconds())
-	} else if d < time.Hour {
-		minutes := int(d.Minutes())
-		seconds := int(d.Seconds()) % 60
-		return fmt.Sprintf("%dm %ds", minutes, seconds)
-	}
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-	return fmt.Sprintf("%dh %dm", hours, minutes)
-}
-
-func countTotalJobs(details *api.PipelineRunDetails) int {
-	total := 0
-	for _, stage := range details.Stages {
-		total += len(stage.Jobs)
-	}
-	return total
-}
-
 func isVMDeploymentJob(job *api.Job) bool {
 	for _, action := range job.Actions {
 		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" || action.Type == "GetVMDeployOrder" {
@@ -524,7 +195,22 @@ func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, 
 		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" || action.Type == "GetVMDeployOrder" {
 			// Try to extract deployOrderId from action params
 			if id, ok := action.Params["deployOrderId"]; ok {
-				deployOrderIDStr = fmt.Sprintf("%v", id)
+				// Properly convert to integer string to avoid scientific notation
+				// JSON unmarshals numbers as float64, which fmt.Sprintf("%v") may format
+				// in scientific notation for large numbers (e.g., 5.4882198e+07)
+				// The API expects a plain integer string (e.g., "54882198")
+				switch v := id.(type) {
+				case float64:
+					deployOrderIDStr = strconv.FormatInt(int64(v), 10)
+				case string:
+					deployOrderIDStr = v
+				case int64:
+					deployOrderIDStr = strconv.FormatInt(v, 10)
+				case int:
+					deployOrderIDStr = strconv.Itoa(v)
+				default:
+					deployOrderIDStr = fmt.Sprintf("%v", id)
+				}
 				break
 			}
 		}
@@ -556,4 +242,572 @@ func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, 
 	}
 
 	return logs.String(), nil
+}
+
+// --- Stage Tabs Logs (new) ---
+
+// LoadRunStageTabsCmd loads the stage tabs model and (by default) the selected tab's logs.
+func LoadRunStageTabsCmd(client *api.Client, organizationID, pipelineID, pipelineName, runID string) tea.Cmd {
+	return func() tea.Msg {
+		// Get run details
+		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
+		if err != nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
+		}
+
+		data := &types.RunStageTabsData{
+			PipelineID:     pipelineID,
+			PipelineName:   pipelineName,
+			RunID:          runID,
+			RunStatus:      details.Status,
+			Stages:         make([]types.StageTab, 0, len(details.Stages)),
+			SelectedIndex:  0,
+			ActiveIndex:    -1,
+			LastActiveIndex: -1,
+			FollowActive:   true,
+		}
+
+		for _, st := range details.Stages {
+			status, complete := computeStageTabStatus(st)
+			data.Stages = append(data.Stages, types.StageTab{
+				StageIndex: st.Index,
+				Name:       st.Name,
+				Status:     status,
+				Complete:   complete,
+				Loaded:     false,
+				Entries:    nil,
+			})
+		}
+
+		data.ActiveIndex = computeActiveStageIndex(data.Stages)
+		data.LastActiveIndex = data.ActiveIndex
+
+		// Default selection: non-running -> first tab, running -> active tab
+		if isRunTerminal(details.Status) {
+			data.SelectedIndex = 0
+			data.FollowActive = false
+		} else if data.ActiveIndex >= 0 {
+			data.SelectedIndex = data.ActiveIndex
+			data.FollowActive = true
+		}
+
+		// Load selected tab logs immediately (so the page has content on entry)
+		if len(details.Stages) > 0 {
+			sel := clampIndex(data.SelectedIndex, len(details.Stages))
+			data.SelectedIndex = sel
+			_, _ = loadStageTabFull(client, organizationID, pipelineID, runID, details.Stages[sel], &data.Stages[sel])
+		}
+
+		return types.RunStageTabsLoadedMsg{Data: data}
+	}
+}
+
+// RefreshRunStageTabsCmd refreshes run details and incrementally updates the active stage logs.
+// This is intended to be called on TickMsg for running pipelines.
+func RefreshRunStageTabsCmd(client *api.Client, organizationID string, existing *types.RunStageTabsData) tea.Cmd {
+	return func() tea.Msg {
+		if existing == nil {
+			return types.ErrorMsg{Err: fmt.Errorf("no existing stage tabs data")}
+		}
+
+		updated := deepCopyRunStageTabsData(existing)
+		if updated == nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to copy stage tabs data")}
+		}
+
+		pipelineID := updated.PipelineID
+		runID := updated.RunID
+
+		// Get current run details
+		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
+		if err != nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
+		}
+		updated.RunStatus = details.Status
+
+		// Rebuild stages while preserving any loaded logs by stage index
+		prevByStageIndex := make(map[string]types.StageTab, len(updated.Stages))
+		for _, st := range updated.Stages {
+			prevByStageIndex[st.StageIndex] = st
+		}
+
+		newStages := make([]types.StageTab, 0, len(details.Stages))
+		for _, st := range details.Stages {
+			status, complete := computeStageTabStatus(st)
+			tab := types.StageTab{
+				StageIndex: st.Index,
+				Name:       st.Name,
+				Status:     status,
+				Complete:   complete,
+				Loaded:     false,
+				Entries:    nil,
+			}
+			if prev, ok := prevByStageIndex[st.Index]; ok {
+				tab.Loaded = prev.Loaded
+				tab.Entries = append([]types.StageLogEntry(nil), prev.Entries...)
+			}
+			newStages = append(newStages, tab)
+		}
+		updated.Stages = newStages
+
+		updated.ActiveIndex = computeActiveStageIndex(updated.Stages)
+		if updated.ActiveIndex < 0 && len(updated.Stages) > 0 {
+			updated.ActiveIndex = len(updated.Stages) - 1
+		}
+
+		// Auto-advance selection only forward, and only if user hasn't manually moved away.
+		if !isRunTerminal(updated.RunStatus) && updated.FollowActive {
+			if updated.LastActiveIndex >= 0 &&
+				updated.ActiveIndex > updated.LastActiveIndex &&
+				updated.SelectedIndex == updated.LastActiveIndex {
+				updated.SelectedIndex = updated.ActiveIndex
+			}
+			updated.LastActiveIndex = updated.ActiveIndex
+		}
+
+		// Keep selection in range
+		if len(updated.Stages) > 0 {
+			updated.SelectedIndex = clampIndex(updated.SelectedIndex, len(updated.Stages))
+		} else {
+			updated.SelectedIndex = 0
+		}
+
+		hasNew := false
+
+		// Refresh logs for the active stage (current stage) to achieve real-time updates.
+		if updated.ActiveIndex >= 0 && updated.ActiveIndex < len(details.Stages) {
+			tab := &updated.Stages[updated.ActiveIndex]
+			stage := details.Stages[updated.ActiveIndex]
+
+			if !tab.Loaded {
+				changed, _ := loadStageTabFull(client, organizationID, pipelineID, runID, stage, tab)
+				hasNew = hasNew || changed
+			} else {
+				changed, _ := refreshStageTabIncremental(client, organizationID, pipelineID, runID, stage, tab)
+				hasNew = hasNew || changed
+			}
+		}
+
+		return types.RunStageTabsUpdatedMsg{Data: updated, HasNewContent: hasNew}
+	}
+}
+
+// LoadRunStageTabCmd ensures a specific tab's logs are loaded (or refreshed) when the user switches tabs.
+func LoadRunStageTabCmd(client *api.Client, organizationID string, existing *types.RunStageTabsData, tabIndex int) tea.Cmd {
+	return func() tea.Msg {
+		if existing == nil {
+			return types.ErrorMsg{Err: fmt.Errorf("no existing stage tabs data")}
+		}
+
+		updated := deepCopyRunStageTabsData(existing)
+		if updated == nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to copy stage tabs data")}
+		}
+
+		pipelineID := updated.PipelineID
+		runID := updated.RunID
+
+		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
+		if err != nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
+		}
+		updated.RunStatus = details.Status
+
+		// Rebuild stages while preserving previously loaded logs
+		prevByStageIndex := make(map[string]types.StageTab, len(updated.Stages))
+		for _, st := range updated.Stages {
+			prevByStageIndex[st.StageIndex] = st
+		}
+		newStages := make([]types.StageTab, 0, len(details.Stages))
+		for _, st := range details.Stages {
+			status, complete := computeStageTabStatus(st)
+			tab := types.StageTab{
+				StageIndex: st.Index,
+				Name:       st.Name,
+				Status:     status,
+				Complete:   complete,
+				Loaded:     false,
+				Entries:    nil,
+			}
+			if prev, ok := prevByStageIndex[st.Index]; ok {
+				tab.Loaded = prev.Loaded
+				tab.Entries = append([]types.StageLogEntry(nil), prev.Entries...)
+			}
+			newStages = append(newStages, tab)
+		}
+		updated.Stages = newStages
+
+		updated.ActiveIndex = computeActiveStageIndex(updated.Stages)
+		if updated.ActiveIndex < 0 && len(updated.Stages) > 0 {
+			updated.ActiveIndex = len(updated.Stages) - 1
+		}
+
+		if len(updated.Stages) == 0 {
+			updated.SelectedIndex = 0
+			return types.RunStageTabsUpdatedMsg{Data: updated, HasNewContent: false}
+		}
+
+		tabIndex = clampIndex(tabIndex, len(updated.Stages))
+		updated.SelectedIndex = tabIndex
+
+		hasNew := false
+		tab := &updated.Stages[tabIndex]
+		stage := details.Stages[tabIndex]
+
+		if !tab.Loaded {
+			changed, _ := loadStageTabFull(client, organizationID, pipelineID, runID, stage, tab)
+			hasNew = hasNew || changed
+		} else {
+			changed, _ := refreshStageTabIncremental(client, organizationID, pipelineID, runID, stage, tab)
+			hasNew = hasNew || changed
+		}
+
+		return types.RunStageTabsUpdatedMsg{Data: updated, HasNewContent: hasNew}
+	}
+}
+
+func isRunTerminal(status string) bool {
+	s := strings.ToUpper(strings.TrimSpace(status))
+	switch s {
+	case "SUCCESS", "FAILED", "FAIL", "CANCELED", "CANCELLED":
+		return true
+	default:
+		return false
+	}
+}
+
+func clampIndex(idx, length int) int {
+	if length <= 0 {
+		return 0
+	}
+	if idx < 0 {
+		return 0
+	}
+	if idx >= length {
+		return length - 1
+	}
+	return idx
+}
+
+func computeActiveStageIndex(stages []types.StageTab) int {
+	for i := range stages {
+		if !stages[i].Complete {
+			return i
+		}
+	}
+	if len(stages) == 0 {
+		return -1
+	}
+	return len(stages) - 1
+}
+
+func computeStageTabStatus(stage api.Stage) (types.StageTabStatus, bool) {
+	anyRunning := false
+	anyFailed := false
+	anyCanceled := false
+	allTerminal := true
+	allSuccessOrSkipped := true
+
+	for _, job := range stage.Jobs {
+		st := strings.ToUpper(strings.TrimSpace(job.Status))
+		switch st {
+		case "RUNNING":
+			anyRunning = true
+			allTerminal = false
+			allSuccessOrSkipped = false
+		case "FAILED", "FAIL":
+			anyFailed = true
+		case "CANCELED", "CANCELLED":
+			anyCanceled = true
+		case "SUCCESS":
+			// terminal success
+		case "SKIPPED":
+			// terminal skipped
+		case "QUEUED", "INIT":
+			allTerminal = false
+			allSuccessOrSkipped = false
+		default:
+			// unknown -> treat as waiting
+			allTerminal = false
+			allSuccessOrSkipped = false
+		}
+		if st != "SUCCESS" && st != "SKIPPED" {
+			// Keep allSuccessOrSkipped false for any other status.
+		}
+	}
+
+	complete := allTerminal
+
+	if anyFailed {
+		return types.StageTabStatusFailed, complete
+	}
+	if anyCanceled && complete {
+		return types.StageTabStatusCanceled, true
+	}
+	if anyRunning {
+		return types.StageTabStatusRunning, false
+	}
+	if complete {
+		if allSuccessOrSkipped {
+			return types.StageTabStatusSuccess, true
+		}
+		return types.StageTabStatusSuccess, true
+	}
+	return types.StageTabStatusWaiting, false
+}
+
+func deepCopyRunStageTabsData(src *types.RunStageTabsData) *types.RunStageTabsData {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	dst.Stages = make([]types.StageTab, len(src.Stages))
+	for i := range src.Stages {
+		dst.Stages[i] = src.Stages[i]
+		dst.Stages[i].Entries = append([]types.StageLogEntry(nil), src.Stages[i].Entries...)
+	}
+	return &dst
+}
+
+func loadStageTabFull(client *api.Client, organizationID, pipelineID, runID string, stage api.Stage, tab *types.StageTab) (bool, error) {
+	if tab == nil {
+		return false, nil
+	}
+
+	entries := make([]types.StageLogEntry, 0)
+
+	for _, job := range stage.Jobs {
+		jobIDStr := fmt.Sprintf("%d", job.ID)
+
+		// VM deploy jobs: fetch via dedicated APIs (full text each time).
+		if isVMDeploymentJob(&job) {
+			logs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
+			if err != nil {
+				logs = fmt.Sprintf("Failed to get VM deployment logs: %s\n", err)
+			}
+			entries = append(entries, types.StageLogEntry{
+				Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: 0},
+				JobID:      job.ID,
+				JobName:    job.Name,
+				StepIndex:  0,
+				StepName:   job.Name,
+				IsVMDeploy: true,
+				Status:     job.Status,
+				Logs:       logs,
+			})
+			continue
+		}
+
+		// Prefer step logs API (supports incremental offsets).
+		jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
+		if err != nil || jobSteps == nil || len(jobSteps.BuildProcessNodes) == 0 {
+			// Fallback to job run log
+			jobLog, jerr := client.GetPipelineJobRunLog(organizationID, pipelineID, runID, jobIDStr)
+			if jerr != nil {
+				jobLog = fmt.Sprintf("Failed to get job log: %s\n", jerr)
+			}
+			entries = append(entries, types.StageLogEntry{
+				Key:       types.StageLogEntryKey{JobID: job.ID, StepIndex: 0},
+				JobID:     job.ID,
+				JobName:   job.Name,
+				StepIndex: 0,
+				StepName:  job.Name,
+				Status:    job.Status,
+				Logs:      jobLog,
+			})
+			continue
+		}
+
+		for _, node := range jobSteps.BuildProcessNodes {
+			entry := types.StageLogEntry{
+				Key:       types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex},
+				JobID:     job.ID,
+				JobName:   job.Name,
+				StepIndex: node.StepIndex,
+				StepName:  node.StepName,
+				IsVMDeploy: false,
+				BuildId:   jobSteps.BuildId,
+				Offset:    0,
+				HasMore:   true,
+				Status:    node.Status,
+				Logs:      "",
+			}
+
+			stepLog, serr := client.GetPipelineJobStepLog(
+				organizationID, pipelineID, runID, jobIDStr,
+				node.StepIndex, jobSteps.BuildId, 0, 100000,
+			)
+			if serr == nil && stepLog != nil {
+				entry.Logs = stepLog.Logs
+				entry.Offset = stepLog.Last
+				entry.HasMore = stepLog.More
+			}
+
+			entries = append(entries, entry)
+		}
+	}
+
+	tab.Entries = entries
+	tab.Loaded = true
+	return true, nil
+}
+
+func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, runID string, stage api.Stage, tab *types.StageTab) (bool, error) {
+	if tab == nil {
+		return false, nil
+	}
+
+	hasNew := false
+
+	indexByKey := make(map[types.StageLogEntryKey]int, len(tab.Entries))
+	for i := range tab.Entries {
+		indexByKey[tab.Entries[i].Key] = i
+	}
+
+	ensureEntry := func(e types.StageLogEntry) int {
+		if idx, ok := indexByKey[e.Key]; ok {
+			return idx
+		}
+		tab.Entries = append(tab.Entries, e)
+		idx := len(tab.Entries) - 1
+		indexByKey[e.Key] = idx
+		return idx
+	}
+
+	jobHasMore := func(jobID int64) bool {
+		for i := range tab.Entries {
+			if tab.Entries[i].JobID == jobID && tab.Entries[i].HasMore {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, job := range stage.Jobs {
+		jobIDStr := fmt.Sprintf("%d", job.ID)
+
+		if isVMDeploymentJob(&job) {
+			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: 0}
+			idx := ensureEntry(types.StageLogEntry{
+				Key:        key,
+				JobID:      job.ID,
+				JobName:    job.Name,
+				StepIndex:  0,
+				StepName:   job.Name,
+				IsVMDeploy: true,
+			})
+			tab.Entries[idx].JobName = job.Name
+			tab.Entries[idx].StepName = job.Name
+			tab.Entries[idx].Status = job.Status
+
+			// VM deploy logs are fetched as a whole; refresh while running (and when empty).
+			if strings.ToUpper(job.Status) == "RUNNING" || tab.Entries[idx].Logs == "" {
+				logs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
+				if err != nil {
+					// Only write error if we have no logs yet.
+					if tab.Entries[idx].Logs == "" {
+						tab.Entries[idx].Logs = fmt.Sprintf("Failed to get VM deployment logs: %s\n", err)
+						hasNew = true
+					}
+				} else if logs != "" && logs != tab.Entries[idx].Logs {
+					tab.Entries[idx].Logs = logs
+					hasNew = true
+				}
+			}
+			continue
+		}
+
+		needSteps := strings.ToUpper(job.Status) == "RUNNING" || jobHasMore(job.ID)
+		if !needSteps {
+			continue
+		}
+
+		jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
+		if err != nil || jobSteps == nil || len(jobSteps.BuildProcessNodes) == 0 {
+			// Fallback: refresh job-level log while running.
+			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: 0}
+			idx := ensureEntry(types.StageLogEntry{
+				Key:       key,
+				JobID:     job.ID,
+				JobName:   job.Name,
+				StepIndex: 0,
+				StepName:  job.Name,
+			})
+			tab.Entries[idx].JobName = job.Name
+			tab.Entries[idx].StepName = job.Name
+			tab.Entries[idx].Status = job.Status
+
+			if strings.ToUpper(job.Status) == "RUNNING" {
+				jobLog, jerr := client.GetPipelineJobRunLog(organizationID, pipelineID, runID, jobIDStr)
+				if jerr == nil && jobLog != "" && jobLog != tab.Entries[idx].Logs {
+					tab.Entries[idx].Logs = jobLog
+					hasNew = true
+				}
+			}
+			continue
+		}
+
+		for _, node := range jobSteps.BuildProcessNodes {
+			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex}
+			idx := ensureEntry(types.StageLogEntry{
+				Key:       key,
+				JobID:     job.ID,
+				JobName:   job.Name,
+				StepIndex: node.StepIndex,
+				StepName:  node.StepName,
+				IsVMDeploy: false,
+				BuildId:   jobSteps.BuildId,
+				Offset:    0,
+				HasMore:   true,
+				Status:    node.Status,
+				Logs:      "",
+			})
+
+			// Keep names/buildId/status up to date.
+			tab.Entries[idx].JobName = job.Name
+			tab.Entries[idx].StepName = node.StepName
+			tab.Entries[idx].BuildId = jobSteps.BuildId
+			tab.Entries[idx].Status = node.Status
+
+			// Fetch logs for running steps, and drain remaining logs for finished steps.
+			shouldFetch := node.Running || (node.Finish && tab.Entries[idx].HasMore)
+			if !shouldFetch {
+				continue
+			}
+
+			const logChunkLimit = 5000
+			const maxChunksPerTick = 3
+
+			offset := tab.Entries[idx].Offset
+			for c := 0; c < maxChunksPerTick; c++ {
+				prevOffset := offset
+				stepLog, serr := client.GetPipelineJobStepLog(
+					organizationID, pipelineID, runID, jobIDStr,
+					node.StepIndex, jobSteps.BuildId, offset, logChunkLimit,
+				)
+				if serr != nil || stepLog == nil {
+					break
+				}
+
+				if stepLog.Logs != "" {
+					tab.Entries[idx].Logs += stepLog.Logs
+					hasNew = true
+				}
+
+				tab.Entries[idx].Offset = stepLog.Last
+				tab.Entries[idx].HasMore = stepLog.More
+				offset = stepLog.Last
+
+				if offset == prevOffset {
+					break
+				}
+				if !stepLog.More {
+					break
+				}
+			}
+		}
+	}
+
+	tab.Loaded = true
+	return hasNew, nil
 }

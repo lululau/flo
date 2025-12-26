@@ -3,7 +3,6 @@ package pages
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,8 +13,10 @@ import (
 	"flowt/internal/tui/types"
 )
 
-// LogsModel represents the logs view page
+// LogsModel represents the logs view page with stage-tabs layout.
+// The UI is a single log viewport with a tab bar for switching stages.
 type LogsModel struct {
+	// Components
 	viewport   components.ViewportModel
 	statusLine components.StatusModeLineModel
 	search     components.SearchModel
@@ -26,26 +27,19 @@ type LogsModel struct {
 	pipelineName string
 	runID        string
 	status       string
-	content      string
+	tabsData     *types.RunStageTabsData
 	config       *config.Config
 
-	// State
-	width         int
-	height        int
-	searchActive  bool
-	searchQuery   string
-	loading       bool
-	autoRefresh   bool
-	isNewRun      bool
-	currentJob    int
-	totalJobs     int
-	loadComplete  bool
-	refreshTicker *time.Ticker
-	stopRefresh   chan struct{}
+	// Layout
+	width  int
+	height int
 
-	// Incremental refresh state
-	streamState        *types.LogStreamState // State for incremental log fetching
-	incrementalEnabled bool                  // Whether incremental refresh is active
+	// State
+	searchActive bool
+	searchQuery  string
+	loading      bool
+	autoRefresh  bool
+	isNewRun     bool
 
 	// Key bindings
 	keys LogsKeyMap
@@ -61,6 +55,8 @@ type LogsKeyMap struct {
 	HalfPageDown key.Binding
 	Home         key.Binding
 	End          key.Binding
+	NextTab      key.Binding
+	PrevTab      key.Binding
 	Refresh      key.Binding
 	Stop         key.Binding
 	OpenEditor   key.Binding
@@ -77,11 +73,11 @@ func DefaultLogsKeyMap() LogsKeyMap {
 	return LogsKeyMap{
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "up"),
+			key.WithHelp("↑/k", "scroll up"),
 		),
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "down"),
+			key.WithHelp("↓/j", "scroll down"),
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup", "ctrl+b", "b"),
@@ -107,6 +103,14 @@ func DefaultLogsKeyMap() LogsKeyMap {
 			key.WithKeys("end", "G"),
 			key.WithHelp("G", "bottom"),
 		),
+		NextTab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("Tab", "next stage"),
+		),
+		PrevTab: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("S-Tab", "prev stage"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -129,11 +133,11 @@ func DefaultLogsKeyMap() LogsKeyMap {
 		),
 		SearchNext: key.NewBinding(
 			key.WithKeys("n"),
-			key.WithHelp("n", "next"),
+			key.WithHelp("n", "next match"),
 		),
 		SearchPrev: key.NewBinding(
 			key.WithKeys("N"),
-			key.WithHelp("N", "prev"),
+			key.WithHelp("N", "prev match"),
 		),
 		Back: key.NewBinding(
 			key.WithKeys("q", "esc"),
@@ -146,12 +150,14 @@ func DefaultLogsKeyMap() LogsKeyMap {
 	}
 }
 
-// NewLogsModel creates a new logs model
+// NewLogsModel creates a new logs model with stage-tabs layout
 func NewLogsModel(cfg *config.Config) LogsModel {
-	vp := components.NewViewportModel("Logs")
+	vp := components.NewViewportModel("")
 	sl := components.NewStatusModeLineModel()
 	search := components.NewSearchModel()
 	spinner := components.NewSpinnerModel()
+
+	vp = vp.SetFocused(true)
 
 	return LogsModel{
 		viewport:   vp,
@@ -163,58 +169,58 @@ func NewLogsModel(cfg *config.Config) LogsModel {
 	}
 }
 
-// SetConfig sets the configuration
-func (m LogsModel) SetConfig(cfg *config.Config) LogsModel {
-	m.config = cfg
-	return m
-}
-
 // SetSize sets the page size
 func (m LogsModel) SetSize(width, height int) LogsModel {
 	m.width = width
 	m.height = height
-	// Reserve space for status line and search
-	vpHeight := height - 2
+
+	// Layout lines:
+	// 1 title + 1 tabs + (optional 1 search) + 1 status + 1 help
+	contentHeight := height - 4
 	if m.searchActive {
-		vpHeight--
+		contentHeight--
 	}
-	m.viewport = m.viewport.SetSize(width, vpHeight)
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	m.viewport = m.viewport.SetSize(width, contentHeight)
 	m.statusLine = m.statusLine.SetWidth(width)
 	m.search = m.search.SetWidth(width)
+
 	return m
 }
 
-// SetRun sets the run context
+// SetRun sets the run context.
 func (m LogsModel) SetRun(pipelineID, pipelineName, runID, status string, isNewRun bool) LogsModel {
 	m.pipelineID = pipelineID
 	m.pipelineName = pipelineName
 	m.runID = runID
 	m.status = status
 	m.isNewRun = isNewRun
-	m.viewport = m.viewport.SetTitle(fmt.Sprintf("Logs: %s (Run #%s)", pipelineName, runID))
-	// Reset incremental state for new run context
-	m.streamState = types.NewLogStreamState(pipelineID, runID)
-	m.incrementalEnabled = false
+	m.tabsData = nil
+	m.viewport = m.viewport.SetTitle("")
+	m.viewport = m.viewport.SetContent("")
 	return m
 }
 
-// SetContent sets the log content
-func (m LogsModel) SetContent(content string) LogsModel {
-	m.content = content
-	m.viewport = m.viewport.SetContent(content)
+// SetStarting enters a starting/loading state (used for immediate navigation after triggering a run).
+func (m LogsModel) SetStarting(pipelineID, pipelineName string) LogsModel {
+	m = m.SetRun(pipelineID, pipelineName, "", "STARTING", true)
+	m = m.SetLoading(true)
 	return m
 }
 
-// AppendContent appends content to the log
-func (m LogsModel) AppendContent(content string) LogsModel {
-	m.content += content
-	m.viewport = m.viewport.AppendContent(content)
-	return m
-}
-
-// SetStatus sets the run status
-func (m LogsModel) SetStatus(status string) LogsModel {
-	m.status = status
+// SetTabsData sets the stage-tabs data model and updates the viewport.
+func (m LogsModel) SetTabsData(data *types.RunStageTabsData) LogsModel {
+	m.tabsData = data
+	if data != nil {
+		m.pipelineID = data.PipelineID
+		m.pipelineName = data.PipelineName
+		m.runID = data.RunID
+		m.status = data.RunStatus
+	}
+	m.updateViewportForSelectedTab(true)
 	return m
 }
 
@@ -223,77 +229,41 @@ func (m LogsModel) SetLoading(loading bool) LogsModel {
 	m.loading = loading
 	m.spinner = m.spinner.SetActive(loading)
 	if loading {
-		m.spinner = m.spinner.SetMessage("Loading logs...")
+		if m.runID == "" {
+			m.spinner = m.spinner.SetMessage("Starting pipeline...")
+		} else {
+			m.spinner = m.spinner.SetMessage("Loading logs...")
+		}
 	}
 	return m
 }
 
-// SetLoadProgress sets the loading progress
-func (m LogsModel) SetLoadProgress(currentJob, totalJobs int, complete bool) LogsModel {
-	m.currentJob = currentJob
-	m.totalJobs = totalJobs
-	m.loadComplete = complete
-	if !complete && totalJobs > 0 {
-		m.spinner = m.spinner.SetMessage(fmt.Sprintf("Loading job %d/%d...", currentJob, totalJobs))
-	}
-	return m
-}
-
-// SetAutoRefresh sets the auto-refresh state
+// SetAutoRefresh sets auto-refresh on/off
 func (m LogsModel) SetAutoRefresh(enabled bool) LogsModel {
 	m.autoRefresh = enabled
 	return m
 }
 
-// GetPipelineID returns the pipeline ID
-func (m LogsModel) GetPipelineID() string {
-	return m.pipelineID
+func (m LogsModel) GetPipelineID() string   { return m.pipelineID }
+func (m LogsModel) GetPipelineName() string { return m.pipelineName }
+func (m LogsModel) GetRunID() string        { return m.runID }
+func (m LogsModel) GetStatus() string       { return m.status }
+func (m LogsModel) GetTabsData() *types.RunStageTabsData {
+	return m.tabsData
 }
 
-// GetRunID returns the run ID
-func (m LogsModel) GetRunID() string {
-	return m.runID
-}
-
-// GetStatus returns the current status
-func (m LogsModel) GetStatus() string {
-	return m.status
-}
-
-// GetContent returns the log content
-func (m LogsModel) GetContent() string {
-	return m.content
-}
-
-// IsRunning returns whether the run is still active
+// IsRunning returns whether the run is still active.
 func (m LogsModel) IsRunning() bool {
-	status := strings.ToUpper(m.status)
-	return status == "RUNNING" || status == "QUEUED" || status == "INIT"
+	status := strings.ToUpper(strings.TrimSpace(m.status))
+	switch status {
+	case "", "SUCCESS", "FAILED", "FAIL", "CANCELED", "CANCELLED":
+		return false
+	default:
+		return true
+	}
 }
 
-// GetStreamState returns the current log stream state
-func (m LogsModel) GetStreamState() *types.LogStreamState {
-	return m.streamState
-}
-
-// SetStreamState sets the log stream state
-func (m LogsModel) SetStreamState(state *types.LogStreamState) LogsModel {
-	m.streamState = state
-	return m
-}
-
-// IsIncrementalEnabled returns whether incremental refresh is enabled
-func (m LogsModel) IsIncrementalEnabled() bool {
-	return m.incrementalEnabled && m.streamState != nil && m.streamState.Initialized
-}
-
-// SetIncrementalEnabled enables or disables incremental refresh mode
-func (m LogsModel) SetIncrementalEnabled(enabled bool) LogsModel {
-	m.incrementalEnabled = enabled
-	return m
-}
-
-// updateStatusLine updates the status line
+// updateStatusLine updates the status line content.
 func (m *LogsModel) updateStatusLine() {
 	autoRefreshStatus := "Off"
 	if m.autoRefresh {
@@ -324,7 +294,7 @@ func (m LogsModel) Init() tea.Cmd {
 func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Handle search input if active
+	// Search mode
 	if m.searchActive {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -340,7 +310,6 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			m.viewport = m.viewport.Search(msg.Query)
 			m.updateStatusLine()
 			return m, nil
-
 		case components.SearchCancelMsg:
 			m.searchActive = false
 			m.search = m.search.Deactivate()
@@ -352,7 +321,6 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Handle key messages
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
@@ -360,39 +328,66 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
-			return m, func() tea.Msg {
-				return types.GoBackMsg{}
-			}
+			return m, func() tea.Msg { return types.GoBackMsg{} }
 
-		case key.Matches(msg, m.keys.Refresh):
-			return m, func() tea.Msg {
-				return LogsRefreshMsg{
-					PipelineID: m.pipelineID,
-					RunID:      m.runID,
+		case key.Matches(msg, m.keys.NextTab):
+			if m.tabsData != nil && len(m.tabsData.Stages) > 0 {
+				m.tabsData.SelectedIndex++
+				if m.tabsData.SelectedIndex >= len(m.tabsData.Stages) {
+					m.tabsData.SelectedIndex = 0
+				}
+				m.tabsData.FollowActive = false
+				m.updateViewportForSelectedTab(false)
+				return m, func() tea.Msg {
+					return LogsTabLoadMsg{TabsData: m.tabsData, TabIndex: m.tabsData.SelectedIndex}
 				}
 			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.PrevTab):
+			if m.tabsData != nil && len(m.tabsData.Stages) > 0 {
+				m.tabsData.SelectedIndex--
+				if m.tabsData.SelectedIndex < 0 {
+					m.tabsData.SelectedIndex = len(m.tabsData.Stages) - 1
+				}
+				m.tabsData.FollowActive = false
+				m.updateViewportForSelectedTab(false)
+				return m, func() tea.Msg {
+					return LogsTabLoadMsg{TabsData: m.tabsData, TabIndex: m.tabsData.SelectedIndex}
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.Refresh):
+			// Refresh the currently selected tab immediately.
+			if m.tabsData != nil {
+				return m, func() tea.Msg {
+					return LogsTabLoadMsg{TabsData: m.tabsData, TabIndex: m.tabsData.SelectedIndex}
+				}
+			}
+			return m, nil
 
 		case key.Matches(msg, m.keys.Stop):
 			if m.IsRunning() {
 				return m, func() tea.Msg {
-					return StopRunRequestMsg{
-						PipelineID: m.pipelineID,
-						RunID:      m.runID,
-					}
+					return StopRunRequestMsg{PipelineID: m.pipelineID, RunID: m.runID}
 				}
 			}
+			return m, nil
 
 		case key.Matches(msg, m.keys.OpenEditor):
-			if m.content != "" {
+			if m.viewport.GetContent() != "" {
 				editor := m.config.GetEditor()
-				return m, types.OpenInEditorCmd(m.content, editor)
+				return m, types.OpenInEditorCmd(m.viewport.GetContent(), editor)
 			}
+			return m, nil
 
 		case key.Matches(msg, m.keys.OpenPager):
-			if m.content != "" {
+			if m.viewport.GetContent() != "" {
 				pager := m.config.GetPager()
-				return m, types.OpenInPagerCmd(m.content, pager)
+				return m, types.OpenInPagerCmd(m.viewport.GetContent(), pager)
 			}
+			return m, nil
 
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
@@ -402,119 +397,83 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.SearchNext):
 			m.viewport = m.viewport.NextSearchMatch()
 			m.updateStatusLine()
+			return m, nil
 
 		case key.Matches(msg, m.keys.SearchPrev):
 			m.viewport = m.viewport.PrevSearchMatch()
 			m.updateStatusLine()
+			return m, nil
 
-		case key.Matches(msg, m.keys.Home):
-			m.viewport = m.viewport.ScrollToTop()
-
-		case key.Matches(msg, m.keys.End):
-			m.viewport = m.viewport.ScrollToEnd()
+		case key.Matches(msg, m.keys.Home), key.Matches(msg, m.keys.End),
+			key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Down),
+			key.Matches(msg, m.keys.PageUp), key.Matches(msg, m.keys.PageDown),
+			key.Matches(msg, m.keys.HalfPageUp), key.Matches(msg, m.keys.HalfPageDown):
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
 
-	case types.LogsAPILoadedMsg:
-		m.content = msg.LogContent
-		m.status = msg.Status
-		m.currentJob = msg.CurrentJob
-		m.totalJobs = msg.TotalJobs
-		m.loadComplete = msg.IsComplete
-		m.viewport = m.viewport.SetContent(m.content)
+	case types.RunStageTabsLoadedMsg:
+		m.tabsData = msg.Data
+		if msg.Data != nil {
+			m.status = msg.Data.RunStatus
+			m.pipelineID = msg.Data.PipelineID
+			m.pipelineName = msg.Data.PipelineName
+			m.runID = msg.Data.RunID
+		}
 		m.loading = false
 		m.spinner = m.spinner.SetActive(false)
-		
-		// Update stream state if provided (for incremental loading)
-		if msg.StreamState != nil {
-			m.streamState = msg.StreamState
-			m.incrementalEnabled = true
-		}
-		
+		m.updateViewportForSelectedTab(true)
 		m.updateStatusLine()
+		return m, nil
 
-		// Scroll to bottom for new runs or running pipelines
-		if m.isNewRun || m.IsRunning() {
-			m.viewport = m.viewport.ScrollToEnd()
+	case types.RunStageTabsUpdatedMsg:
+		oldSelected := -1
+		atBottom := m.viewport.AtBottom()
+		if m.tabsData != nil {
+			oldSelected = m.tabsData.SelectedIndex
 		}
 
-	case types.LogsProgressMsg:
-		if msg.AppendMode {
-			m.content += msg.Content
-			m.viewport = m.viewport.AppendContent(msg.Content)
-		} else {
-			m.content = msg.Content
-			m.viewport = m.viewport.SetContent(msg.Content)
-		}
-		m.status = msg.Status
-		m.currentJob = msg.CurrentJob
-		m.totalJobs = msg.TotalJobs
-		m.loadComplete = msg.IsComplete
-
-		if msg.IsComplete {
-			m.loading = false
-			m.spinner = m.spinner.SetActive(false)
-		} else {
-			m.spinner = m.spinner.SetMessage(fmt.Sprintf("Loading job %d/%d...", msg.CurrentJob, msg.TotalJobs))
+		m.tabsData = msg.Data
+		if msg.Data != nil {
+			m.status = msg.Data.RunStatus
 		}
 
-		m.updateStatusLine()
-
-		// Auto scroll for running pipelines
-		if m.IsRunning() && m.viewport.AtBottom() {
-			m.viewport = m.viewport.ScrollToEnd()
-		}
-
-	case types.LogsIncrementalLoadedMsg:
-		// Handle incremental log update
-		m.status = msg.Status
-		if msg.StreamState != nil {
-			m.streamState = msg.StreamState
-		}
-		
-		if msg.HasNewContent && msg.IncrementalContent != "" {
-			m.content += msg.IncrementalContent
-			m.viewport = m.viewport.AppendContent(msg.IncrementalContent)
-			
-			// Auto scroll if at bottom
-			if m.viewport.AtBottom() {
-				m.viewport = m.viewport.ScrollToEnd()
+		// If selection changed (auto-advance), jump to end of new stage logs.
+		if m.tabsData != nil && m.tabsData.SelectedIndex != oldSelected {
+			m.updateViewportForSelectedTab(true)
+		} else if msg.HasNewContent && m.tabsData != nil {
+			// Only update viewport if we're viewing the active stage.
+			if m.tabsData.SelectedIndex == m.tabsData.ActiveIndex {
+				m.updateViewportForSelectedTab(atBottom)
+				if atBottom {
+					m.viewport = m.viewport.ScrollToEnd()
+				}
 			}
 		}
+
 		m.updateStatusLine()
+		return m, nil
 
 	case types.TickMsg:
-		// Handle auto-refresh tick
-		if m.autoRefresh && m.IsRunning() {
+		// Auto-refresh tick (running runs only)
+		if m.autoRefresh && m.IsRunning() && m.tabsData != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return LogsIncrementalRefreshMsg{
-					PipelineID:  m.pipelineID,
-					RunID:       m.runID,
-					StreamState: m.streamState,
-				}
+				return LogsTabsRefreshMsg{TabsData: m.tabsData}
 			})
 		}
 
-	case types.EditorClosedMsg, types.PagerClosedMsg:
-		// Nothing special needed after editor/pager closes
-
-	case types.WindowSizeMsg:
+	case tea.WindowSizeMsg:
 		m = m.SetSize(msg.Width, msg.Height)
 	}
 
-	// Update spinner
+	// Spinner updates
 	if m.loading {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-	}
-
-	// Update viewport
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -524,64 +483,191 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 func (m LogsModel) View() string {
 	var b strings.Builder
 
+	// Title line
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
+	title := m.pipelineName
+	if title == "" {
+		title = m.pipelineID
+	}
+	if m.runID != "" {
+		title = fmt.Sprintf("%s (Run #%s)", title, m.runID)
+	}
+	b.WriteString(titleStyle.Render(title))
+	b.WriteString("\n")
+
+	// Tabs line
+	b.WriteString(m.renderTabsLine())
+	b.WriteString("\n")
+
 	// Search bar
 	if m.searchActive {
 		b.WriteString(m.search.View())
 		b.WriteString("\n")
 	}
 
-	// Loading spinner
-	if m.loading && m.content == "" {
-		b.WriteString(m.spinner.View())
-		b.WriteString("\n")
+	// Main logs area
+	if m.loading && (m.tabsData == nil || len(m.tabsData.Stages) == 0) {
+		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+		b.WriteString(loadingStyle.Render(m.spinner.View()))
+	} else {
+		b.WriteString(m.viewport.View())
 	}
 
-	// Viewport
-	vpView := m.viewport.View()
-	b.WriteString(vpView)
 	b.WriteString("\n")
 
 	// Status line
 	m.updateStatusLine()
 	b.WriteString(m.statusLine.View())
+	b.WriteString("\n")
+
+	// Help line
+	helpItems := []types.HelpItem{
+		{Key: "Tab/S-Tab", Desc: "switch stage"},
+		{Key: "j/k", Desc: "scroll"},
+		{Key: "r", Desc: "refresh"},
+	}
+	if m.IsRunning() {
+		helpItems = append(helpItems, types.HelpItem{Key: "X", Desc: "stop"})
+	}
+	helpItems = append(helpItems,
+		types.HelpItem{Key: "/", Desc: "search"},
+		types.HelpItem{Key: "e", Desc: "editor"},
+		types.HelpItem{Key: "q", Desc: "back"},
+	)
+	b.WriteString(types.RenderHelpLine(helpItems))
 
 	return b.String()
 }
 
-// Helper to get status style
-func logsStatusStyle(status string) lipgloss.Style {
-	style := lipgloss.NewStyle()
-	switch strings.ToUpper(status) {
-	case "SUCCESS":
-		return style.Foreground(lipgloss.Color("#10B981"))
-	case "RUNNING", "QUEUED", "INIT":
-		return style.Foreground(lipgloss.Color("#22C55E"))
-	case "FAILED", "FAIL":
-		return style.Foreground(lipgloss.Color("#EF4444"))
-	case "CANCELED":
-		return style.Foreground(lipgloss.Color("#9CA3AF"))
+func (m LogsModel) renderTabsLine() string {
+	if m.tabsData == nil || len(m.tabsData.Stages) == 0 {
+		empty := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
+		return empty.Render("No stages")
+	}
+
+	selectedStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#7C3AED")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Bold(true).
+		Padding(0, 1)
+	normalStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#E5E7EB")).
+		Padding(0, 1)
+	activeStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#22C55E")).
+		Bold(true)
+
+	var parts []string
+	for i, tab := range m.tabsData.Stages {
+		icon := stageStatusIcon(tab.Status)
+		label := fmt.Sprintf("%s %s", icon, tab.Name)
+
+		style := normalStyle
+		if i == m.tabsData.SelectedIndex {
+			style = selectedStyle
+		}
+		rendered := style.Render(label)
+
+		// Mark active stage (only if different from selected)
+		if i == m.tabsData.ActiveIndex && i != m.tabsData.SelectedIndex && m.IsRunning() {
+			rendered = activeStyle.Render("●") + " " + rendered
+		}
+
+		parts = append(parts, rendered)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func stageStatusIcon(status types.StageTabStatus) string {
+	switch status {
+	case types.StageTabStatusSuccess:
+		return "✔"
+	case types.StageTabStatusFailed:
+		return "✘"
+	case types.StageTabStatusRunning:
+		return "●"
+	case types.StageTabStatusCanceled:
+		return "⊘"
 	default:
-		return style.Foreground(lipgloss.Color("#6B7280"))
+		return "○"
 	}
 }
 
-// LogsRefreshMsg requests refreshing the logs (full refresh)
-type LogsRefreshMsg struct {
-	PipelineID string
-	RunID      string
+func (m *LogsModel) updateViewportForSelectedTab(scrollToEnd bool) {
+	if m.tabsData == nil || len(m.tabsData.Stages) == 0 {
+		m.viewport = m.viewport.SetTitle("")
+		m.viewport = m.viewport.SetContent("")
+		return
+	}
+
+	idx := m.tabsData.SelectedIndex
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.tabsData.Stages) {
+		idx = len(m.tabsData.Stages) - 1
+	}
+
+	tab := m.tabsData.Stages[idx]
+	title := tab.Name
+	m.viewport = m.viewport.SetTitle(title)
+
+	content := buildStageTabLogText(tab)
+	m.viewport = m.viewport.SetContent(content)
+	if scrollToEnd && m.IsRunning() && idx == m.tabsData.ActiveIndex {
+		m.viewport = m.viewport.ScrollToEnd()
+	}
 }
 
-// LogsIncrementalRefreshMsg requests incremental log refresh
-type LogsIncrementalRefreshMsg struct {
-	PipelineID  string
-	RunID       string
-	StreamState *types.LogStreamState
+func buildStageTabLogText(tab types.StageTab) string {
+	if !tab.Loaded {
+		return "Loading logs for this stage...\n"
+	}
+	if len(tab.Entries) == 0 {
+		return "No logs yet.\n"
+	}
+
+	var b strings.Builder
+	var lastJobID int64 = -1
+
+	for _, e := range tab.Entries {
+		if e.JobID != lastJobID {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(fmt.Sprintf("=== Job: %s (Status: %s) ===\n", e.JobName, e.Status))
+			lastJobID = e.JobID
+		}
+
+		// Step header (skip for pure job-level log entries where StepName == JobName)
+		if e.StepName != "" && e.StepName != e.JobName {
+			b.WriteString(fmt.Sprintf("--- Step: %s ---\n", e.StepName))
+		}
+
+		if e.Logs != "" {
+			b.WriteString(e.Logs)
+			if !strings.HasSuffix(e.Logs, "\n") {
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	if b.Len() == 0 {
+		return "No logs yet.\n"
+	}
+	return b.String()
 }
 
-// AutoRefreshTickCmd returns a command for auto-refresh ticking
-func AutoRefreshTickCmd(interval time.Duration) tea.Cmd {
-	return tea.Tick(interval, func(t time.Time) tea.Msg {
-		return types.TickMsg{}
-	})
+// LogsTabsRefreshMsg requests refreshing the stage-tabs data (used on TickMsg).
+type LogsTabsRefreshMsg struct {
+	TabsData *types.RunStageTabsData
 }
+
+// LogsTabLoadMsg requests loading/refreshing logs for a specific selected tab.
+type LogsTabLoadMsg struct {
+	TabsData *types.RunStageTabsData
+	TabIndex int
+}
+
 

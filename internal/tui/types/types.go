@@ -242,17 +242,6 @@ type HistoryAPILoadedMsg struct {
 	PerPage     int
 }
 
-// LogsAPILoadedMsg contains raw API response for logs
-type LogsAPILoadedMsg struct {
-	Details     *api.PipelineRunDetails
-	LogContent  string
-	Status      string
-	CurrentJob  int
-	TotalJobs   int
-	IsComplete  bool
-	StreamState *LogStreamState // Optional stream state for incremental loading
-}
-
 // RunAPIStartedMsg contains response from starting a pipeline run
 type RunAPIStartedMsg struct {
 	RunID string
@@ -281,64 +270,6 @@ type LoadBranchInfoMsg struct {
 type BranchInfoLoadedMsg struct {
 	DefaultBranch  string
 	RepositoryURLs map[string]string
-}
-
-// --- Progressive Loading Messages ---
-
-// LogsProgressMsg is sent during progressive log loading
-type LogsProgressMsg struct {
-	Content    string
-	Status     string
-	CurrentJob int
-	TotalJobs  int
-	IsComplete bool
-	AppendMode bool // If true, append to existing content
-}
-
-// --- Incremental Log Loading ---
-
-// StepLogState tracks the log position for a single step within a job
-type StepLogState struct {
-	StepIndex int   // Step index from API
-	BuildId   int64 // Build ID from API
-	LastPos   int64 // Last position of log content (for incremental fetching)
-	HasMore   bool  // Whether there are more logs available
-}
-
-// JobLogState tracks all step states for a single job
-type JobLogState struct {
-	JobId       int64                   // Job ID
-	JobName     string                  // Job name for display
-	StageIndex  string                  // Parent stage index
-	StageName   string                  // Parent stage name
-	Steps       map[int]*StepLogState   // Map of stepIndex -> StepLogState
-	IsComplete  bool                    // Whether job has finished
-}
-
-// LogStreamState manages incremental log fetching state for a pipeline run
-type LogStreamState struct {
-	PipelineID   string
-	RunID        string
-	Jobs         map[int64]*JobLogState // Map of jobId -> JobLogState
-	Initialized  bool                   // Whether initial state has been fetched
-}
-
-// NewLogStreamState creates a new LogStreamState
-func NewLogStreamState(pipelineID, runID string) *LogStreamState {
-	return &LogStreamState{
-		PipelineID:  pipelineID,
-		RunID:       runID,
-		Jobs:        make(map[int64]*JobLogState),
-		Initialized: false,
-	}
-}
-
-// LogsIncrementalLoadedMsg is sent when incremental logs are loaded
-type LogsIncrementalLoadedMsg struct {
-	IncrementalContent string           // Only the new log content (to append)
-	Status             string           // Current pipeline status
-	StreamState        *LogStreamState  // Updated stream state
-	HasNewContent      bool             // Whether there's new content to display
 }
 
 // PipelinesProgressMsg is sent during progressive pipeline loading
@@ -415,6 +346,82 @@ type LoadingMsg struct {
 
 // LoadingCompleteMsg indicates loading is complete
 type LoadingCompleteMsg struct{}
+
+// --- Stage Tabs Data for Logs UI (new) ---
+
+// StageTabStatus is the computed status for a stage tab.
+type StageTabStatus string
+
+const (
+	StageTabStatusSuccess StageTabStatus = "SUCCESS"
+	StageTabStatusRunning StageTabStatus = "RUNNING"
+	StageTabStatusWaiting StageTabStatus = "WAITING"
+	StageTabStatusFailed  StageTabStatus = "FAILED"
+	StageTabStatusSkipped StageTabStatus = "SKIPPED"
+	StageTabStatusCanceled StageTabStatus = "CANCELED"
+)
+
+// StageLogEntryKey uniquely identifies a log stream within a stage.
+// For non-step jobs, StepIndex is 0.
+type StageLogEntryKey struct {
+	JobID     int64
+	StepIndex int
+}
+
+// StageLogEntry stores log state for a single (job, step) within a stage.
+type StageLogEntry struct {
+	Key       StageLogEntryKey
+	JobID     int64
+	JobName   string
+	StepIndex int
+	StepName  string
+	IsVMDeploy bool
+
+	BuildId  int64
+	Offset   int64
+	HasMore  bool
+
+	Status string
+	Logs   string
+}
+
+// StageTab represents a single stage shown as a tab.
+type StageTab struct {
+	StageIndex string
+	Name       string
+	Status     StageTabStatus
+	Complete   bool
+
+	Loaded  bool
+	Entries []StageLogEntry
+}
+
+// RunStageTabsData is the full logs-page data model for the stage-tabs UI.
+type RunStageTabsData struct {
+	PipelineID   string
+	PipelineName string
+	RunID        string
+	RunStatus    string
+
+	Stages []StageTab
+
+	// UI state (kept here so commands can apply consistent auto-advance rules)
+	SelectedIndex   int
+	ActiveIndex     int
+	LastActiveIndex int
+	FollowActive    bool
+}
+
+// RunStageTabsLoadedMsg is sent when tabs data is initially loaded.
+type RunStageTabsLoadedMsg struct {
+	Data *RunStageTabsData
+}
+
+// RunStageTabsUpdatedMsg is sent when tabs data is refreshed incrementally.
+type RunStageTabsUpdatedMsg struct {
+	Data          *RunStageTabsData
+	HasNewContent bool
+}
 
 // --- Helper Functions ---
 
