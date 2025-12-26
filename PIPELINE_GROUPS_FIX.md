@@ -89,7 +89,7 @@ func (c *Client) ListPipelineGroupPipelines(organizationId string, groupId int, 
 
 ## 调试功能
 
-设置环境变量 `FLOWT_DEBUG=1` 可以启用详细的调试日志：
+设置环境变量 `FLO_DEBUG=1` 可以启用详细的调试日志：
 - API请求URL
 - 响应状态码
 - 响应头信息

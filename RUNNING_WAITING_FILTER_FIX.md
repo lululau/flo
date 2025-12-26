@@ -128,7 +128,7 @@ Found 1 RUNNING+WAITING pipelines:
 如需调试，可以启用调试模式：
 
 ```bash
-FLOWT_DEBUG=1 ./flo
+FLO_DEBUG=1 ./flo
 ```
 
 这将输出详细的API请求和响应信息，包括pipeline解析过程。 

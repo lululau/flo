@@ -166,7 +166,7 @@ func createHTTPClientWithProxy() *http.Client {
 	if httpProxy := os.Getenv("http_proxy"); httpProxy != "" {
 		if proxyURL, err := url.Parse(httpProxy); err == nil {
 			transport.Proxy = http.ProxyURL(proxyURL)
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Using HTTP proxy: %s", httpProxy)
 			}
 		} else {
@@ -189,7 +189,7 @@ func createHTTPClientWithProxy() *http.Client {
 				}
 				return nil, nil
 			}
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Using HTTPS proxy: %s", httpsProxy)
 			}
 		} else {
@@ -227,14 +227,14 @@ func NewClient(accessKeyId, accessKeySecret, regionId string) (*Client, error) {
 	// Configure proxy settings from environment variables
 	if httpProxy := os.Getenv("http_proxy"); httpProxy != "" {
 		sdkClient.SetHttpProxy(httpProxy)
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("SDK using HTTP proxy: %s", httpProxy)
 		}
 	}
 
 	if httpsProxy := os.Getenv("https_proxy"); httpsProxy != "" {
 		sdkClient.SetHttpsProxy(httpsProxy)
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("SDK using HTTPS proxy: %s", httpsProxy)
 		}
 	}
@@ -416,7 +416,7 @@ func (c *Client) listPipelineGroupsWithToken(organizationId string) ([]PipelineG
 			return nil, fmt.Errorf("failed to read response body: %w", err)
 		}
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("ListPipelineGroups URL: %s", url)
 			debugLogger.Printf("Response Status: %d", resp.StatusCode)
 			debugLogger.Printf("Response Headers: %v", resp.Header)
@@ -462,7 +462,7 @@ func (c *Client) listPipelineGroupsWithToken(organizationId string) ([]PipelineG
 		totalPagesHeader := resp.Header.Get("x-total-pages")
 		currentPageHeader := resp.Header.Get("x-page")
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("Pagination info - Current page: %s, Total pages: %s, Items in this page: %d", currentPageHeader, totalPagesHeader, len(groupItems))
 		}
 
@@ -550,7 +550,7 @@ func (c *Client) ListPipelineGroupPipelines(organizationId string, groupId int, 
 			return nil, fmt.Errorf("failed to read response body: %w", err)
 		}
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("ListPipelineGroupPipelines URL: %s", url)
 			debugLogger.Printf("Response Status: %d", resp.StatusCode)
 			debugLogger.Printf("Response Headers: %v", resp.Header)
@@ -603,7 +603,7 @@ func (c *Client) ListPipelineGroupPipelines(organizationId string, groupId int, 
 		totalPagesHeader := resp.Header.Get("x-total-pages")
 		currentPageHeader := resp.Header.Get("x-page")
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("Pagination info - Current page: %s, Total pages: %s, Items in this page: %d", currentPageHeader, totalPagesHeader, len(pipelineItems))
 		}
 
@@ -692,7 +692,7 @@ func (c *Client) runPipelineWithToken(organizationId, pipelineIdStr string, para
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("RunPipeline Request URL: %s", url)
 		debugLogger.Printf("RunPipeline Request Method: POST")
 		debugLogger.Printf("RunPipeline Request Headers: %v", req.Header)
@@ -719,12 +719,12 @@ func (c *Client) runPipelineWithToken(organizationId, pipelineIdStr string, para
 		// Try to parse as integer to validate it's a number
 		if _, err := strconv.ParseInt(runID, 10, 64); err == nil {
 			// It's a valid number, use it directly
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Successfully parsed run ID as number: %s", runID)
 			}
 		} else {
 			// Not a valid number, might be JSON or other format
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Run ID is not a number, trying JSON parsing: %s", runID)
 			}
 
@@ -773,7 +773,7 @@ func (c *Client) runPipelineWithToken(organizationId, pipelineIdStr string, para
 						}
 					}
 				} else {
-					if os.Getenv("FLOWT_DEBUG") == "1" {
+					if os.Getenv("FLO_DEBUG") == "1" {
 						debugLogger.Printf("Failed to parse as JSON: %v", err)
 					}
 				}
@@ -926,7 +926,7 @@ func (c *Client) stopPipelineRunWithToken(organizationId, pipelineId, runId stri
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("StopPipelineRun URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %s", string(respBody))
@@ -1142,7 +1142,7 @@ func (c *Client) GetLatestPipelineRunInfo(organizationId, pipelineId string) (*P
 								branch = branchInfo
 							}
 							runInfo.RepositoryURLs[repoUrl] = branch
-							if os.Getenv("FLOWT_DEBUG") == "1" {
+							if os.Getenv("FLO_DEBUG") == "1" {
 								debugLogger.Printf("Extracted repository from sources[].data: %s -> %s", repoUrl, branch)
 							}
 						}
@@ -1155,7 +1155,7 @@ func (c *Client) GetLatestPipelineRunInfo(organizationId, pipelineId string) (*P
 							branch = branchInfo
 						}
 						runInfo.RepositoryURLs[repoUrl] = branch
-						if os.Getenv("FLOWT_DEBUG") == "1" {
+						if os.Getenv("FLO_DEBUG") == "1" {
 							debugLogger.Printf("Extracted repository from sources[].repoUrl: %s -> %s", repoUrl, branch)
 						}
 					}
@@ -1338,7 +1338,7 @@ func (c *Client) GetPipelineRunDetails(organizationId, pipelineId, pipelineRunId
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetPipelineRunDetails URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -1495,7 +1495,7 @@ func (c *Client) GetPipelineJobRunLog(organizationId, pipelineId, pipelineRunId,
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetPipelineJobRunLog URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -1586,7 +1586,7 @@ func (c *Client) GetPipelineJobSteps(organizationId, pipelineId, pipelineRunId, 
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetPipelineJobSteps URL: %s", apiURL)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -1647,7 +1647,7 @@ func (c *Client) GetPipelineJobStepLog(organizationId, pipelineId, pipelineRunId
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetPipelineJobStepLog URL: %s", apiURL)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -1841,7 +1841,7 @@ func extractDeployOrderId(resultJSON string) (string, error) {
 	}
 
 	// Add debug logging if enabled
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("Parsing job result JSON for deployOrderId: %.200s", resultJSON)
 	}
 
@@ -1894,7 +1894,7 @@ func extractDeployOrderIdFromActions(actions []JobAction) (string, error) {
 	}
 
 	// Add debug logging if enabled
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("Parsing job actions for deployOrderId, found %d actions", len(actions))
 	}
 
@@ -1917,7 +1917,7 @@ func extractDeployOrderIdFromActions(actions []JobAction) (string, error) {
 			if action.Data != "" {
 				var actionData map[string]interface{}
 				if err := json.Unmarshal([]byte(action.Data), &actionData); err != nil {
-					if os.Getenv("FLOWT_DEBUG") == "1" {
+					if os.Getenv("FLO_DEBUG") == "1" {
 						debugLogger.Printf("Failed to unmarshal action data: %v, data: %.200s", err, action.Data)
 					}
 					continue
@@ -1933,12 +1933,12 @@ func extractDeployOrderIdFromActions(actions []JobAction) (string, error) {
 					}
 				}
 
-				if os.Getenv("FLOWT_DEBUG") == "1" {
+				if os.Getenv("FLO_DEBUG") == "1" {
 					debugLogger.Printf("Action data keys: %v", getMapKeys(actionData))
 				}
 			}
 
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Found GetVMDeployOrder action but no deployOrderId found in params or data")
 			}
 		}
@@ -1999,7 +1999,7 @@ func (c *Client) listPipelineRunsPaginatedWithToken(organizationId, pipelineId s
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("Trying pipeline runs endpoint: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.500s", string(respBody))
@@ -2168,7 +2168,7 @@ func (c *Client) fetchPipelineRunsPage(path string) ([]PipelineRun, bool, error)
 		return nil, false, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("Trying pipeline runs endpoint: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.500s", string(respBody))
@@ -2513,7 +2513,7 @@ func (c *Client) makeTokenRequest(method, path string, body interface{}) (map[st
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("Request URL: %s", url)
 		debugLogger.Printf("Request Method: %s", method)
 		debugLogger.Printf("Request Headers: %v", req.Header)
@@ -2588,7 +2588,7 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 			return nil, fmt.Errorf("failed to read response body: %w", err)
 		}
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("Request URL: %s", url)
 			debugLogger.Printf("Response Status: %d", resp.StatusCode)
 			debugLogger.Printf("Response Headers: %v", resp.Header)
@@ -2614,13 +2614,13 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 		totalPagesHeader := resp.Header.Get("x-total-pages")
 		currentPageHeader := resp.Header.Get("x-page")
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("Pagination info - Current page: %s, Total pages: %s, Items in this page: %d", currentPageHeader, totalPagesHeader, len(pipelineItems))
 		}
 
 		// Parse each pipeline item
 		for _, pipelineMap := range pipelineItems {
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Processing pipeline item: %+v", pipelineMap)
 			}
 
@@ -2644,7 +2644,7 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 				pipelineID = fmt.Sprintf("%.0f", id)
 			}
 
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline ID: '%s'", pipelineID)
 			}
 
@@ -2700,7 +2700,7 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 
 			pipelineName := getStringField(pipelineMap, "name")
 
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline name: '%s', status: '%s'", pipelineName, pipelineStatus)
 			}
 
@@ -2720,11 +2720,11 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 			// Only include pipelines that have both ID and name
 			if pipeline.PipelineID != "" && pipeline.Name != "" {
 				allPipelines = append(allPipelines, pipeline)
-				if os.Getenv("FLOWT_DEBUG") == "1" {
+				if os.Getenv("FLO_DEBUG") == "1" {
 					debugLogger.Printf("Added pipeline: ID='%s', Name='%s', Status='%s'", pipeline.PipelineID, pipeline.Name, pipeline.Status)
 				}
 			} else {
-				if os.Getenv("FLOWT_DEBUG") == "1" {
+				if os.Getenv("FLO_DEBUG") == "1" {
 					debugLogger.Printf("Skipped pipeline due to missing ID or name: ID='%s', Name='%s'", pipeline.PipelineID, pipeline.Name)
 				}
 			}
@@ -2880,7 +2880,7 @@ func (c *Client) ListPipelineJobHistorys(organizationId, pipelineId, category, i
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("ListPipelineJobHistorys URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Headers: %v", resp.Header)
@@ -2976,7 +2976,7 @@ func (c *Client) GetVMDeployOrder(organizationId, pipelineId, deployOrderId stri
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetVMDeployOrder URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -3096,7 +3096,7 @@ func (c *Client) GetVMDeployMachineLog(organizationId, pipelineId, deployOrderId
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if os.Getenv("FLOWT_DEBUG") == "1" {
+	if os.Getenv("FLO_DEBUG") == "1" {
 		debugLogger.Printf("GetVMDeployMachineLog URL: %s", url)
 		debugLogger.Printf("Response Status: %d", resp.StatusCode)
 		debugLogger.Printf("Response Body: %.1000s", string(respBody))
@@ -3204,7 +3204,7 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 			return fmt.Errorf("failed to read response body: %w", err)
 		}
 
-		if os.Getenv("FLOWT_DEBUG") == "1" {
+		if os.Getenv("FLO_DEBUG") == "1" {
 			debugLogger.Printf("Request URL: %s", url)
 			debugLogger.Printf("Response Status: %d", resp.StatusCode)
 			debugLogger.Printf("Response Headers: %v", resp.Header)
@@ -3237,7 +3237,7 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 		// Parse pipelines for this page
 		var pagePipelines []Pipeline
 		for _, pipelineMap := range pipelineItems {
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Processing pipeline item: %+v", pipelineMap)
 			}
 
@@ -3261,7 +3261,7 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 				pipelineID = fmt.Sprintf("%.0f", id)
 			}
 
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline ID: '%s'", pipelineID)
 			}
 
@@ -3317,7 +3317,7 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 
 			pipelineName := getStringField(pipelineMap, "name")
 
-			if os.Getenv("FLOWT_DEBUG") == "1" {
+			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline name: '%s', status: '%s'", pipelineName, pipelineStatus)
 			}
 
@@ -3337,11 +3337,11 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 			// Only include pipelines that have both ID and name
 			if pipeline.PipelineID != "" && pipeline.Name != "" {
 				pagePipelines = append(pagePipelines, pipeline)
-				if os.Getenv("FLOWT_DEBUG") == "1" {
+				if os.Getenv("FLO_DEBUG") == "1" {
 					debugLogger.Printf("Added pipeline: ID='%s', Name='%s', Status='%s'", pipeline.PipelineID, pipeline.Name, pipeline.Status)
 				}
 			} else {
-				if os.Getenv("FLOWT_DEBUG") == "1" {
+				if os.Getenv("FLO_DEBUG") == "1" {
 					debugLogger.Printf("Skipped pipeline due to missing ID or name: ID='%s', Name='%s'", pipeline.PipelineID, pipeline.Name)
 				}
 			}

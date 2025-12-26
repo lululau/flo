@@ -64,7 +64,7 @@ debug: false
 
 如果遇到问题，可以开启调试模式：
 ```bash
-export FLOWT_DEBUG=1
+export FLO_DEBUG=1
 ./flo
 ```
 

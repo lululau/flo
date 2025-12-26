@@ -3,7 +3,7 @@
 echo "Testing pipeline status filtering with debug mode..."
 
 # Run the program with debug mode and capture output
-FLOWT_DEBUG=1 timeout 10s ./flo > debug_output.log 2>&1 &
+FLO_DEBUG=1 timeout 10s ./flo > debug_output.log 2>&1 &
 PID=$!
 
 # Wait a bit for the program to start and load data

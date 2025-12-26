@@ -80,10 +80,10 @@ export no_proxy=localhost,127.0.0.1,*.local
 
 ## 调试代理配置
 
-可以通过设置 `FLOWT_DEBUG=1` 环境变量来启用调试模式，查看代理配置信息：
+可以通过设置 `FLO_DEBUG=1` 环境变量来启用调试模式，查看代理配置信息：
 
 ```bash
-export FLOWT_DEBUG=1
+export FLO_DEBUG=1
 export http_proxy=http://proxy.company.com:8080
 ./flo
 ```
