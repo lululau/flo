@@ -1800,9 +1800,154 @@ func extractDeployOrderIdFromActions(actions []JobAction) (string, error) {
 	return "", fmt.Errorf("deployOrderId not found in any GetVMDeployOrder action")
 }
 
-// ListPipelineRuns retrieves a list of runs for a specific pipeline.
+// PipelineRunsResult represents a paginated result of pipeline runs
+type PipelineRunsResult struct {
+	Runs        []PipelineRun
+	CurrentPage int
+	TotalPages  int
+	PerPage     int
+	TotalRuns   int
+	HasMore     bool
+}
+
+// ListPipelineRunsPaginated retrieves a single page of runs for a specific pipeline.
+func (c *Client) ListPipelineRunsPaginated(organizationId, pipelineId string, page, perPage int) (*PipelineRunsResult, error) {
+	if organizationId == "" {
+		return nil, fmt.Errorf("organizationId is required for ListPipelineRunsPaginated")
+	}
+	if pipelineId == "" {
+		return nil, fmt.Errorf("pipelineId is required for ListPipelineRunsPaginated")
+	}
+
+	if !c.useToken {
+		return nil, fmt.Errorf("ListPipelineRunsPaginated with AccessKey authentication not implemented yet")
+	}
+
+	return c.listPipelineRunsPaginatedWithToken(organizationId, pipelineId, page, perPage)
+}
+
+// listPipelineRunsPaginatedWithToken retrieves a single page of pipeline runs
+func (c *Client) listPipelineRunsPaginatedWithToken(organizationId, pipelineId string, page, perPage int) (*PipelineRunsResult, error) {
+	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s/runs?page=%d&perPage=%d", organizationId, pipelineId, page, perPage)
+
+	url := fmt.Sprintf("https://%s%s", c.endpoint, path)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if os.Getenv("FLOWT_DEBUG") == "1" {
+		debugLogger.Printf("Trying pipeline runs endpoint: %s", url)
+		debugLogger.Printf("Response Status: %d", resp.StatusCode)
+		debugLogger.Printf("Response Body: %.500s", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse the response array
+	var runItems []map[string]interface{}
+	if err := json.Unmarshal(respBody, &runItems); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response as array: %w. Response body: %.500s", err, string(respBody))
+	}
+
+	var pipelineRuns []PipelineRun
+	for _, runMap := range runItems {
+		var startTime, finishTime time.Time
+
+		if st, ok := runMap["startTime"].(float64); ok && st > 0 {
+			startTime = time.Unix(int64(st)/1000, 0)
+		}
+		if ft, ok := runMap["endTime"].(float64); ok && ft > 0 {
+			finishTime = time.Unix(int64(ft)/1000, 0)
+		}
+
+		var runID string
+		if id, ok := runMap["pipelineRunId"].(string); ok {
+			runID = id
+		} else if id, ok := runMap["pipelineRunId"].(float64); ok {
+			runID = fmt.Sprintf("%.0f", id)
+		}
+
+		var pipelineID string
+		if pid, ok := runMap["pipelineId"].(string); ok {
+			pipelineID = pid
+		} else if pid, ok := runMap["pipelineId"].(float64); ok {
+			pipelineID = fmt.Sprintf("%.0f", pid)
+		}
+
+		var triggerMode string
+		if tm, ok := runMap["triggerMode"].(float64); ok {
+			switch int(tm) {
+			case 1:
+				triggerMode = "MANUAL"
+			case 2:
+				triggerMode = "SCHEDULE"
+			case 3:
+				triggerMode = "PUSH"
+			case 5:
+				triggerMode = "PIPELINE"
+			case 6:
+				triggerMode = "WEBHOOK"
+			default:
+				triggerMode = fmt.Sprintf("UNKNOWN(%d)", int(tm))
+			}
+		}
+
+		pipelineRun := PipelineRun{
+			RunID:       runID,
+			PipelineID:  pipelineID,
+			Status:      getStringField(runMap, "status"),
+			StartTime:   startTime,
+			FinishTime:  finishTime,
+			TriggerMode: triggerMode,
+		}
+
+		if pipelineRun.RunID != "" {
+			pipelineRuns = append(pipelineRuns, pipelineRun)
+		}
+	}
+
+	// Parse pagination headers
+	totalPages := 1
+	totalRuns := len(pipelineRuns)
+
+	if tp, err := strconv.Atoi(resp.Header.Get("x-total-pages")); err == nil && tp > 0 {
+		totalPages = tp
+	}
+	if tr, err := strconv.Atoi(resp.Header.Get("x-total")); err == nil && tr > 0 {
+		totalRuns = tr
+	}
+
+	return &PipelineRunsResult{
+		Runs:        pipelineRuns,
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		PerPage:     perPage,
+		TotalRuns:   totalRuns,
+		HasMore:     page < totalPages,
+	}, nil
+}
 
 // ListPipelineRuns retrieves a list of runs for a specific pipeline.
+// This fetches all pages.
 func (c *Client) ListPipelineRuns(organizationId string, pipelineId string) ([]PipelineRun, error) {
 	if organizationId == "" {
 		return nil, fmt.Errorf("organizationId is required for ListPipelineRuns")
