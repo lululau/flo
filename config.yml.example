@@ -43,6 +43,12 @@ endpoint: "openapi-rdc.aliyuncs.com"
 # pager: "less -R"
 # pager: "more"
 
+# ===== 排序配置 =====
+# 流水线列表默认排序方式 - 可选
+# 可选值：name（按名称）、create_time（按创建时间）、bookmark（书签优先）
+# 默认值：name
+# default_sort: "name"
+
 # ===== 书签配置 =====
 # 书签功能：在主界面按 B 键添加/移除书签，按 b 键切换显示模式
 # 书签的流水线会在列表中排在前面，并显示 ★ 标记

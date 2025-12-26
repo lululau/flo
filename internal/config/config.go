@@ -27,6 +27,8 @@ type Config struct {
 	PerPage int `yaml:"per_page,omitempty"`
 	// 书签配置
 	Bookmarks []string `yaml:"bookmarks,omitempty"`
+	// 默认排序方式: last_run_time, name, create_time, update_time, bookmark
+	DefaultSort string `yaml:"default_sort,omitempty"`
 }
 
 // GetPerPage returns the number of items per page, defaulting to 30
@@ -217,5 +219,13 @@ func (c *Config) GetRegionID() string {
 // UsePersonalAccessToken returns whether to use personal access token authentication
 func (c *Config) UsePersonalAccessToken() bool {
 	return c.PersonalAccessToken != ""
+}
+
+// GetDefaultSort returns the default sort configuration value
+func (c *Config) GetDefaultSort() string {
+	if c.DefaultSort == "" {
+		return "name"
+	}
+	return c.DefaultSort
 }
 

@@ -50,6 +50,44 @@ const (
 	FilterModeBookmarked
 )
 
+// SortMode represents different sort modes for pipeline list
+type SortMode int
+
+const (
+	SortByName       SortMode = iota // Default - sort by name ascending
+	SortByCreateTime                 // Sort by create time descending
+	SortByBookmark                   // Sort by bookmark status (bookmarked first)
+)
+
+// SortModeString returns the display string for a sort mode
+func (s SortMode) String() string {
+	switch s {
+	case SortByCreateTime:
+		return "Created"
+	case SortByBookmark:
+		return "Bookmark"
+	default:
+		return "Name"
+	}
+}
+
+// NextSortMode returns the next sort mode in the cycle
+func (s SortMode) Next() SortMode {
+	return (s + 1) % 3
+}
+
+// ParseSortMode parses a string to SortMode
+func ParseSortMode(s string) SortMode {
+	switch s {
+	case "create_time":
+		return SortByCreateTime
+	case "bookmark":
+		return SortByBookmark
+	default:
+		return SortByName
+	}
+}
+
 // ModalType represents different modal types
 type ModalType int
 

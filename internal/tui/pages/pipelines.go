@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -32,6 +33,7 @@ type PipelinesModel struct {
 	width             int
 	height            int
 	filterMode        types.FilterMode
+	sortMode          types.SortMode
 	searchActive      bool
 	searchQuery       string
 	loading           bool
@@ -67,6 +69,7 @@ type PipelinesKeyMap struct {
 	Search         key.Binding
 	SearchNext     key.Binding
 	SearchPrev     key.Binding
+	Sort           key.Binding
 	Back           key.Binding
 	Quit           key.Binding
 }
@@ -142,6 +145,10 @@ func DefaultPipelinesKeyMap() PipelinesKeyMap {
 			key.WithKeys("N"),
 			key.WithHelp("N", "prev"),
 		),
+		Sort: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "sort"),
+		),
 		Back: key.NewBinding(
 			key.WithKeys("q", "esc"),
 			key.WithHelp("q", "back"),
@@ -172,6 +179,7 @@ func NewPipelinesModel(cfg *config.Config) PipelinesModel {
 		spinner:  spinner,
 		config:   cfg,
 		keys:     DefaultPipelinesKeyMap(),
+		sortMode: types.ParseSortMode(cfg.GetDefaultSort()),
 		loading:  true, // Start with loading state
 	}
 }
@@ -267,6 +275,24 @@ func (m *PipelinesModel) applyFilters() {
 		filtered = append(filtered, p)
 	}
 
+	// Apply sorting
+	sort.Slice(filtered, func(i, j int) bool {
+		switch m.sortMode {
+		case types.SortByCreateTime:
+			return filtered[i].CreateTime.After(filtered[j].CreateTime)
+		case types.SortByBookmark:
+			bi := m.config.IsBookmarked(filtered[i].Name)
+			bj := m.config.IsBookmarked(filtered[j].Name)
+			if bi != bj {
+				return bi // bookmarked first
+			}
+			// Secondary sort by name for bookmarked items
+			return filtered[i].Name < filtered[j].Name
+		default: // SortByName
+			return filtered[i].Name < filtered[j].Name
+		}
+	})
+
 	m.pipelines = filtered
 	m.updateTable()
 }
@@ -310,9 +336,9 @@ func (m *PipelinesModel) updateModeline() {
 		status = ""
 	}
 
-	info := fmt.Sprintf("%d pipelines", len(m.pipelines))
+	info := fmt.Sprintf("%d pipelines | Sort: %s", len(m.pipelines), m.sortMode.String())
 	if len(m.pipelines) != len(m.allPipelines) {
-		info += fmt.Sprintf(" (of %d)", len(m.allPipelines))
+		info = fmt.Sprintf("%d pipelines (of %d) | Sort: %s", len(m.pipelines), len(m.allPipelines), m.sortMode.String())
 	}
 
 	m.modeline = m.modeline.SetPage(title)
@@ -497,6 +523,11 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 				}
 			}
 
+		case key.Matches(msg, m.keys.Sort):
+			m.sortMode = m.sortMode.Next()
+			m.applyFilters()
+			m.updateModeline()
+
 		case key.Matches(msg, m.keys.SwitchToGroups):
 			return m, func() tea.Msg {
 				return types.NavigateMsg{Page: types.PageGroupsList}
@@ -622,6 +653,7 @@ func (m PipelinesModel) View() string {
 		{Key: "a", Desc: "running/all"},
 		{Key: "b", Desc: "bookmarks"},
 		{Key: "B", Desc: "bookmark"},
+		{Key: "o", Desc: "sort"},
 		{Key: "C-g", Desc: "groups"},
 		{Key: "/", Desc: "search"},
 		{Key: "C-f/C-b", Desc: "page"},
