@@ -130,7 +130,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.navigateBack()
 
 	case types.ViewModeChangedMsg:
-		// Handle group selection
+		// Handle group selection - save current page to previousPages before navigating
+		m.previousPages = append(m.previousPages, pageState{
+			page: m.currentPage,
+			data: m.getPageData(),
+		})
 		m.pipelinesPage = m.pipelinesPage.SetViewMode(msg.ViewMode, msg.GroupID, msg.GroupName)
 		m.pipelinesPage = m.pipelinesPage.SetLoading(true)
 		m.currentPage = types.PagePipelinesList
