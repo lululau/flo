@@ -509,7 +509,7 @@ func countTotalJobs(details *api.PipelineRunDetails) int {
 
 func isVMDeploymentJob(job *api.Job) bool {
 	for _, action := range job.Actions {
-		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" {
+		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" || action.Type == "GetVMDeployOrder" {
 			return true
 		}
 	}
@@ -521,7 +521,7 @@ func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, 
 
 	// Find deploy order ID from actions
 	for _, action := range job.Actions {
-		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" {
+		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" || action.Type == "GetVMDeployOrder" {
 			// Try to extract deployOrderId from action params
 			if id, ok := action.Params["deployOrderId"]; ok {
 				deployOrderIDStr = fmt.Sprintf("%v", id)

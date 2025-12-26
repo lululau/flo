@@ -17,11 +17,11 @@ import (
 
 // PipelinesModel represents the pipelines list page
 type PipelinesModel struct {
-	table       components.TableModel
-	modeline    components.ModeLineModel
-	search      components.SearchModel
-	modal       components.ModalModel
-	spinner     components.SpinnerModel
+	table    components.TableModel
+	modeline components.ModeLineModel
+	search   components.SearchModel
+	modal    components.ModalModel
+	spinner  components.SpinnerModel
 
 	// Data
 	allPipelines []api.Pipeline
@@ -41,8 +41,8 @@ type PipelinesModel struct {
 	currentPage       int
 	totalPages        int
 	loadingComplete   bool
-	loadingBranchInfo bool                      // Loading branch info for run dialog
-	repositoryURLs    map[string]string         // Repository URLs from latest run
+	loadingBranchInfo bool              // Loading branch info for run dialog
+	repositoryURLs    map[string]string // Repository URLs from latest run
 
 	// Key bindings
 	keys PipelinesKeyMap
@@ -157,8 +157,7 @@ func DefaultPipelinesKeyMap() PipelinesKeyMap {
 func NewPipelinesModel(cfg *config.Config) PipelinesModel {
 	columns := []table.Column{
 		{Title: "★", Width: 3},
-		{Title: "Name", Width: 40},
-		{Title: "Status", Width: 12},
+		{Title: "Name", Width: 50},
 	}
 
 	t := components.NewTableModel(columns, "Pipelines")
@@ -187,8 +186,15 @@ func (m PipelinesModel) SetConfig(cfg *config.Config) PipelinesModel {
 func (m PipelinesModel) SetSize(width, height int) PipelinesModel {
 	m.width = width
 	m.height = height
-	// Reserve space for modeline, search, and help line
-	tableHeight := height - 4
+	// Reserve space for modeline and help line; include search bar when active
+	reserved := 2 // modeline + help
+	if m.searchActive {
+		reserved++
+	}
+	tableHeight := height - reserved
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
 	m.table = m.table.SetSize(width, tableHeight)
 	m.modeline = m.modeline.SetWidth(width)
 	m.search = m.search.SetWidth(width)
@@ -244,7 +250,7 @@ func (m *PipelinesModel) applyFilters() {
 		// Apply status filter (running/waiting)
 		if m.filterMode == types.FilterModeRunningWaiting {
 			status := strings.ToUpper(p.LastRunStatus)
-			if status != "RUNNING" && status != "QUEUED" && status != "INIT" {
+			if status != "RUNNING" && status != "QUEUED" && status != "INIT" && status != "WAITING" {
 				continue
 			}
 		}
@@ -274,8 +280,7 @@ func (m *PipelinesModel) updateTable() {
 
 		rows[i] = table.Row{
 			bookmark,
-			types.TruncateString(p.Name, 40),
-			p.LastRunStatus,
+			types.TruncateString(p.Name, 50),
 		}
 		rowData[i] = p
 	}
@@ -371,12 +376,14 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
+				m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
+			m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
@@ -384,7 +391,8 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 		case components.SearchCancelMsg:
 			m.searchActive = false
 			m.search = m.search.Deactivate()
-			m.searchQuery = "" // Clear the search on cancel
+			m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
+			m.searchQuery = ""               // Clear the search on cancel
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
@@ -483,6 +491,7 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
 			m.search = m.search.Activate()
+			m = m.SetSize(m.width, m.height) // shrink table to make room for search bar
 			return m, m.search.Focus()
 
 		case key.Matches(msg, m.keys.SearchNext):
@@ -625,22 +634,3 @@ func (m PipelinesModel) ClearSearch() PipelinesModel {
 	m.table = m.table.ClearSearch()
 	return m
 }
-
-// Helper to render status with color
-func renderStatus(status string) string {
-	style := lipgloss.NewStyle()
-	switch strings.ToUpper(status) {
-	case "SUCCESS":
-		style = style.Foreground(lipgloss.Color("#10B981"))
-	case "RUNNING", "QUEUED", "INIT":
-		style = style.Foreground(lipgloss.Color("#22C55E"))
-	case "FAILED", "FAIL":
-		style = style.Foreground(lipgloss.Color("#EF4444"))
-	case "CANCELED":
-		style = style.Foreground(lipgloss.Color("#9CA3AF"))
-	default:
-		style = style.Foreground(lipgloss.Color("#6B7280"))
-	}
-	return style.Render(status)
-}
-

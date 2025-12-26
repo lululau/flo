@@ -99,7 +99,7 @@ func DefaultTableStyles() TableStyles {
 			Padding(0, 1),
 		Selected: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#374151")).
+			Background(lipgloss.Color("#7C3AED")). // Purple background
 			Bold(true).
 			Padding(0, 1),
 		Border: lipgloss.NewStyle().
@@ -130,9 +130,10 @@ func NewTableModel(columns []table.Column, title string) TableModel {
 		BorderBottom(true).
 		Bold(true).
 		Foreground(lipgloss.Color("#F59E0B"))
+	// Purple background with white text for selected row (entire row highlighted)
 	s.Selected = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#374151")).
+		Background(lipgloss.Color("#7C3AED")).
 		Bold(true)
 	s.Cell = s.Cell.
 		Foreground(lipgloss.Color("#E5E7EB"))
@@ -178,13 +179,16 @@ func (m TableModel) SetTitle(title string) TableModel {
 func (m TableModel) SetSize(width, height int) TableModel {
 	m.width = width
 	m.height = height
-	// Account for title and borders
-	tableHeight := height - 4
-	if tableHeight < 1 {
-		tableHeight = 1
+	// Height here represents the total available lines for the table block (content area).
+	// We render a header row ourselves, so dedicate one line for it and use the rest for data rows.
+	headerLines := 1
+	rowArea := height - headerLines
+	if rowArea < 1 {
+		rowArea = 1
 	}
-	m.table.SetWidth(width - 2)
-	m.table.SetHeight(tableHeight)
+
+	m.table.SetWidth(width - 2) // allow for border padding
+	m.table.SetHeight(rowArea)  // number of data rows to render
 	return m
 }
 
@@ -290,13 +294,13 @@ func (m TableModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Table content
-	tableView := m.table.View()
+	// Custom table rendering to support full row highlighting
+	tableContent := m.renderTable()
 
 	// Add border
 	bordered := m.styles.Border.
 		Width(m.width - 2).
-		Render(tableView)
+		Render(tableContent)
 
 	b.WriteString(bordered)
 
@@ -310,6 +314,205 @@ func (m TableModel) View() string {
 	}
 
 	return b.String()
+}
+
+// renderTable renders the table with custom row highlighting
+func (m TableModel) renderTable() string {
+	var b strings.Builder
+
+	tableWidth := m.width - 4 // Account for border padding
+	if tableWidth < 10 {
+		tableWidth = 10
+	}
+
+	// Calculate total columns width for proper cell sizing
+	totalColWidth := 0
+	for _, col := range m.columns {
+		totalColWidth += col.Width
+	}
+
+	// Use the larger of totalColWidth or tableWidth
+	rowWidth := tableWidth
+	if totalColWidth > rowWidth {
+		rowWidth = totalColWidth
+	}
+
+	// Render header
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#F59E0B")).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#374151")).
+		BorderBottom(true)
+
+	var headerCells []string
+	for _, col := range m.columns {
+		cell := padRight(col.Title, col.Width)
+		headerCells = append(headerCells, cell)
+	}
+	headerRow := strings.Join(headerCells, "")
+	// Pad header to full row width
+	headerRow = padRight(headerRow, rowWidth)
+	b.WriteString(headerStyle.Render(headerRow))
+	b.WriteString("\n")
+
+	// Handle empty table
+	if len(m.rows) == 0 {
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280")).
+			Italic(true)
+		emptyMsg := padRight("  No data", rowWidth)
+		b.WriteString(emptyStyle.Render(emptyMsg))
+		return b.String()
+	}
+
+	// Render rows
+	cursor := m.table.Cursor()
+	visibleStart, visibleEnd := m.getVisibleRange()
+	rowsCapacity := m.table.Height()
+
+	cellStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#E5E7EB"))
+
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#7C3AED")).
+		Bold(true)
+
+	renderedRows := 0
+	for i := visibleStart; i < visibleEnd && i < len(m.rows); i++ {
+		row := m.rows[i]
+		var rowCells []string
+
+		for j, col := range m.columns {
+			cellContent := ""
+			if j < len(row) {
+				cellContent = row[j]
+			}
+			cell := padRight(cellContent, col.Width)
+			rowCells = append(rowCells, cell)
+		}
+
+		rowContent := strings.Join(rowCells, "")
+		// Pad row to full width for complete background highlighting
+		rowContent = padRight(rowContent, rowWidth)
+
+		if i == cursor {
+			// Selected row - full row highlighted with purple background
+			b.WriteString(selectedStyle.Width(rowWidth).Render(rowContent))
+		} else {
+			b.WriteString(cellStyle.Render(rowContent))
+		}
+
+		renderedRows++
+		if i < visibleEnd-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	// Pad remaining space with empty rows so the table block keeps a stable height
+	for renderedRows < rowsCapacity {
+		if renderedRows > 0 || visibleEnd > 0 {
+			b.WriteString("\n")
+		}
+		emptyRow := padRight("", rowWidth)
+		b.WriteString(cellStyle.Render(emptyRow))
+		renderedRows++
+	}
+
+	return b.String()
+}
+
+// getVisibleRange returns the range of visible rows based on cursor position
+func (m TableModel) getVisibleRange() (int, int) {
+	cursor := m.table.Cursor()
+	height := m.table.Height()
+	totalRows := len(m.rows)
+
+	if totalRows == 0 {
+		return 0, 0
+	}
+
+	if height <= 0 {
+		height = 10 // Default height
+	}
+
+	// Calculate visible start based on cursor position
+	// The cursor should always be visible in the viewport
+	start := 0
+
+	// If we have more rows than can fit in the viewport
+	if totalRows > height {
+		// Position the viewport so cursor is visible
+		// Try to keep cursor roughly centered when possible
+		halfHeight := height / 2
+
+		if cursor <= halfHeight {
+			// Cursor near top - show from beginning
+			start = 0
+		} else if cursor >= totalRows-halfHeight {
+			// Cursor near bottom - show the last 'height' rows
+			start = totalRows - height
+		} else {
+			// Cursor in middle - center it
+			start = cursor - halfHeight
+		}
+
+		// Ensure start is within bounds
+		if start < 0 {
+			start = 0
+		}
+		if start > totalRows-height {
+			start = totalRows - height
+		}
+	}
+
+	end := start + height
+	if end > totalRows {
+		end = totalRows
+	}
+
+	return start, end
+}
+
+// padRight pads a string to the specified width (handles unicode properly)
+func padRight(s string, width int) string {
+	// Use lipgloss width which handles unicode characters properly
+	currentWidth := lipgloss.Width(s)
+	if currentWidth >= width {
+		// Truncate if too long
+		return truncateToWidth(s, width)
+	}
+	return s + strings.Repeat(" ", width-currentWidth)
+}
+
+// truncateToWidth truncates a string to fit within the specified width
+func truncateToWidth(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+
+	// Truncate character by character
+	result := ""
+	for _, r := range s {
+		newResult := result + string(r)
+		if lipgloss.Width(newResult) > width {
+			break
+		}
+		result = newResult
+	}
+
+	// If we have room, add ellipsis indicator
+	if width > 3 && lipgloss.Width(result) > 0 {
+		for lipgloss.Width(result+"…") > width && len(result) > 0 {
+			result = result[:len(result)-1]
+		}
+		if len(result) > 0 {
+			result += "…"
+		}
+	}
+
+	return result
 }
 
 // Search searches for a query in the table
@@ -460,4 +663,3 @@ func AutoColumnWidths(headers []string, rows []table.Row, maxWidth int) []int {
 
 	return widths
 }
-

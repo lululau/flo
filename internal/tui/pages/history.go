@@ -181,8 +181,15 @@ func NewHistoryModel() HistoryModel {
 func (m HistoryModel) SetSize(width, height int) HistoryModel {
 	m.width = width
 	m.height = height
-	// Reserve space for modeline, search, and help line
-	tableHeight := height - 4
+	// Reserve space for modeline and help line; include search bar when active
+	reserved := 2 // modeline + help
+	if m.searchActive {
+		reserved++
+	}
+	tableHeight := height - reserved
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
 	m.table = m.table.SetSize(width, tableHeight)
 	m.modeline = m.modeline.SetWidth(width)
 	m.search = m.search.SetWidth(width)
@@ -352,18 +359,21 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
+				m = m.SetSize(m.width, m.height) // reflow table height
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
+			m = m.SetSize(m.width, m.height) // reflow table height
 			m.table = m.table.Search(msg.Query)
 			return m, nil
 
 		case components.SearchCancelMsg:
 			m.searchActive = false
 			m.search = m.search.Deactivate()
+			m = m.SetSize(m.width, m.height) // reflow table height
 			m.searchQuery = ""
 			m.table = m.table.ClearSearch()
 			return m, nil
@@ -453,6 +463,7 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
 			m.search = m.search.Activate()
+			m = m.SetSize(m.width, m.height) // shrink table to make room for search bar
 			return m, m.search.Focus()
 
 		case key.Matches(msg, m.keys.SearchNext):
@@ -590,4 +601,3 @@ type StopRunRequestMsg struct {
 	PipelineID string
 	RunID      string
 }
-
