@@ -70,15 +70,15 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          OUTPUT_NAME="flowt-${{ inputs.version }}-${{ matrix.name }}${{ matrix.ext }}"
+          OUTPUT_NAME="flo-${{ inputs.version }}-${{ matrix.name }}${{ matrix.ext }}"
           go build -ldflags="-s -w -X main.version=${{ inputs.version }}" -o "dist/${OUTPUT_NAME}" ./cmd/aliyun-pipelines-tui
           echo "BINARY_NAME=${OUTPUT_NAME}" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flowt-${{ matrix.name }}
-          path: dist/flowt-${{ inputs.version }}-${{ matrix.name }}${{ matrix.ext }}
+          name: flo-${{ matrix.name }}
+          path: dist/flo-${{ inputs.version }}-${{ matrix.name }}${{ matrix.ext }}
           retention-days: 30
 
   create-release:
@@ -99,8 +99,8 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          # Copy all flowt binaries from artifact directories
-          find artifacts -name "flowt-*" -type f -exec cp {} release/ \;
+          # Copy all flo binaries from artifact directories
+          find artifacts -name "flo-*" -type f -exec cp {} release/ \;
           # List what we found
           echo "Found artifacts:"
           ls -la artifacts/
@@ -119,28 +119,28 @@ jobs:
           tag_name: ${{ inputs.version }}
           name: Release ${{ inputs.version }}
           body: |
-            ## Flowt ${{ inputs.version }}
+            ## Flo ${{ inputs.version }}
             
             阿里云云效流水线 TUI 工具
             
             ### 支持的平台
             
-            - **macOS Intel (x64)**: `flowt-${{ inputs.version }}-macos-intel-x64`
-            - **macOS Apple Silicon (ARM64)**: `flowt-${{ inputs.version }}-macos-aarch64`
-            - **Linux x64**: `flowt-${{ inputs.version }}-linux-x64`
-            - **Linux ARM64**: `flowt-${{ inputs.version }}-linux-arm64`
-            - **Windows x64**: `flowt-${{ inputs.version }}-windows-x64.exe`
+            - **macOS Intel (x64)**: `flo-${{ inputs.version }}-macos-intel-x64`
+            - **macOS Apple Silicon (ARM64)**: `flo-${{ inputs.version }}-macos-aarch64`
+            - **Linux x64**: `flo-${{ inputs.version }}-linux-x64`
+            - **Linux ARM64**: `flo-${{ inputs.version }}-linux-arm64`
+            - **Windows x64**: `flo-${{ inputs.version }}-windows-x64.exe`
             
             ### 安装说明
             
             1. 下载对应平台的二进制文件
-            2. 重命名为 `flowt` (Windows 下为 `flowt.exe`)
-            3. 添加执行权限: `chmod +x flowt` (Unix 系统)
+            2. 重命名为 `flo` (Windows 下为 `flo.exe`)
+            3. 添加执行权限: `chmod +x flo` (Unix 系统)
             4. 移动到 PATH 目录或直接运行
             
             ### 配置
             
-            创建配置文件 `~/.config/flowt.yml`:
+            创建配置文件 `~/.config/flo.yml`:
             
             ```yaml
             organization_id: "your_organization_id"
