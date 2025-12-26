@@ -71,7 +71,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           OUTPUT_NAME="flo-${{ inputs.version }}-${{ matrix.name }}${{ matrix.ext }}"
-          go build -ldflags="-s -w -X main.version=${{ inputs.version }}" -o "dist/${OUTPUT_NAME}" ./cmd/aliyun-pipelines-tui
+          go build -ldflags="-s -w -X main.version=${{ inputs.version }}" -o "dist/${OUTPUT_NAME}" ./cmd/flo
           echo "BINARY_NAME=${OUTPUT_NAME}" >> $GITHUB_ENV
 
       - name: Upload artifact

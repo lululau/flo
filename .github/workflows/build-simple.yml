@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p dist
           OUTPUT_NAME="flo-${{ inputs.version }}-${{ matrix.platform }}${{ matrix.ext }}"
-          go build -ldflags="-s -w -X main.version=${{ inputs.version }}" -o "dist/${OUTPUT_NAME}" ./cmd/aliyun-pipelines-tui
+          go build -ldflags="-s -w -X main.version=${{ inputs.version }}" -o "dist/${OUTPUT_NAME}" ./cmd/flo
           ls -la dist/
 
       - name: Upload binary
