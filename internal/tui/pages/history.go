@@ -2,7 +2,6 @@ package pages
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -412,9 +411,6 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Run):
-			// #region agent log
-			if f, err := os.OpenFile("/Users/liuxiang/cascode/github.com/flowt/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil { f.WriteString(fmt.Sprintf(`{"hypothesisId":"C","location":"history.go:Run","message":"r key pressed in history, requesting branch info","data":{"pipelineID":"%s"},"timestamp":%d}`+"\n", m.pipelineID, time.Now().UnixMilli())); f.Close() }
-			// #endregion
 			m.loadingBranchInfo = true
 			return m, func() tea.Msg {
 				return types.LoadBranchInfoMsg{PipelineID: m.pipelineID}
@@ -483,9 +479,6 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		m.updateModeline()
 
 	case types.BranchInfoLoadedMsg:
-		// #region agent log
-		if f, err := os.OpenFile("/Users/liuxiang/cascode/github.com/flowt/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil { f.WriteString(fmt.Sprintf(`{"hypothesisId":"C","location":"history.go:BranchInfoLoaded","message":"branch info loaded in history, showing modal","data":{"defaultBranch":"%s","repoCount":%d},"timestamp":%d}`+"\n", msg.DefaultBranch, len(msg.RepositoryURLs), time.Now().UnixMilli())); f.Close() }
-		// #endregion
 		m.loadingBranchInfo = false
 		m.repositoryURLs = msg.RepositoryURLs
 		m.modal = components.NewInputModal(
@@ -527,15 +520,19 @@ func (m HistoryModel) View() string {
 		return m.modal.View()
 	}
 
+	// Full screen loading indicator when initially loading data
+	if m.loading && len(m.runs) == 0 {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+		loadingText := loadingStyle.Render("Loading...")
+		centered := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, loadingText)
+		return centered
+	}
+
 	// Search bar
 	if m.searchActive {
 		b.WriteString(m.search.View())
-		b.WriteString("\n")
-	}
-
-	// Loading spinner
-	if m.loading {
-		b.WriteString(m.spinner.View())
 		b.WriteString("\n")
 	}
 
@@ -550,9 +547,17 @@ func (m HistoryModel) View() string {
 	b.WriteString("\n")
 
 	// Help line
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	help := "Enter=logs r=run X=stop [/]=prev/next page /=search C-f/C-b=scroll q=back Q=quit"
-	b.WriteString(helpStyle.Render(help))
+	helpItems := []types.HelpItem{
+		{Key: "Enter", Desc: "logs"},
+		{Key: "r", Desc: "run"},
+		{Key: "X", Desc: "stop"},
+		{Key: "[/]", Desc: "prev/next page"},
+		{Key: "/", Desc: "search"},
+		{Key: "C-f/C-b", Desc: "scroll"},
+		{Key: "q", Desc: "back"},
+		{Key: "Q", Desc: "quit"},
+	}
+	b.WriteString(types.RenderHelpLine(helpItems))
 
 	return b.String()
 }

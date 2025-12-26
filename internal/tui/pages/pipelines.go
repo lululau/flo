@@ -2,9 +2,7 @@ package pages
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -175,6 +173,7 @@ func NewPipelinesModel(cfg *config.Config) PipelinesModel {
 		spinner:  spinner,
 		config:   cfg,
 		keys:     DefaultPipelinesKeyMap(),
+		loading:  true, // Start with loading state
 	}
 }
 
@@ -438,9 +437,6 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Run):
 			if pipeline := m.SelectedPipeline(); pipeline != nil {
-				// #region agent log
-				if f, err := os.OpenFile("/Users/liuxiang/cascode/github.com/flowt/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil { f.WriteString(fmt.Sprintf(`{"hypothesisId":"A","location":"pipelines.go:Run","message":"r key pressed, requesting branch info","data":{"pipelineID":"%s","pipelineName":"%s"},"timestamp":%d}`+"\n", pipeline.PipelineID, pipeline.Name, time.Now().UnixMilli())); f.Close() }
-				// #endregion
 				m.loadingBranchInfo = true
 				return m, func() tea.Msg {
 					return types.LoadBranchInfoMsg{PipelineID: pipeline.PipelineID}
@@ -532,9 +528,6 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 		m = m.SetSize(msg.Width, msg.Height)
 
 	case types.BranchInfoLoadedMsg:
-		// #region agent log
-		if f, err := os.OpenFile("/Users/liuxiang/cascode/github.com/flowt/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil { f.WriteString(fmt.Sprintf(`{"hypothesisId":"B","location":"pipelines.go:BranchInfoLoaded","message":"branch info loaded, showing modal","data":{"defaultBranch":"%s","repoCount":%d},"timestamp":%d}`+"\n", msg.DefaultBranch, len(msg.RepositoryURLs), time.Now().UnixMilli())); f.Close() }
-		// #endregion
 		m.loadingBranchInfo = false
 		m.repositoryURLs = msg.RepositoryURLs
 		m.modal = components.NewInputModal(
@@ -573,15 +566,19 @@ func (m PipelinesModel) View() string {
 		return m.modal.View()
 	}
 
+	// Full screen loading indicator when initially loading data
+	if m.loading && len(m.allPipelines) == 0 {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+		loadingText := loadingStyle.Render("Loading...")
+		centered := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, loadingText)
+		return centered
+	}
+
 	// Search bar
 	if m.searchActive {
 		b.WriteString(m.search.View())
-		b.WriteString("\n")
-	}
-
-	// Loading spinner
-	if m.loading {
-		b.WriteString(m.spinner.View())
 		b.WriteString("\n")
 	}
 
@@ -596,9 +593,19 @@ func (m PipelinesModel) View() string {
 	b.WriteString("\n")
 
 	// Help line
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	help := "Enter=history r=run a=running/all b=bookmarks B=bookmark C-g=groups /=search C-f/C-b=page q=back Q=quit"
-	b.WriteString(helpStyle.Render(help))
+	helpItems := []types.HelpItem{
+		{Key: "Enter", Desc: "history"},
+		{Key: "r", Desc: "run"},
+		{Key: "a", Desc: "running/all"},
+		{Key: "b", Desc: "bookmarks"},
+		{Key: "B", Desc: "bookmark"},
+		{Key: "C-g", Desc: "groups"},
+		{Key: "/", Desc: "search"},
+		{Key: "C-f/C-b", Desc: "page"},
+		{Key: "q", Desc: "back"},
+		{Key: "Q", Desc: "quit"},
+	}
+	b.WriteString(types.RenderHelpLine(helpItems))
 
 	return b.String()
 }

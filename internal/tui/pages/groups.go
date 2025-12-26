@@ -354,10 +354,14 @@ func (m GroupsModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Loading spinner
-	if m.loading {
-		b.WriteString(m.spinner.View())
-		b.WriteString("\n")
+	// Full screen loading indicator when initially loading data
+	if m.loading && len(m.allGroups) == 0 {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+		loadingText := loadingStyle.Render("Loading...")
+		centered := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, loadingText)
+		return centered
 	}
 
 	// Table
@@ -371,9 +375,14 @@ func (m GroupsModel) View() string {
 	b.WriteString("\n")
 
 	// Help line
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	help := "Enter=select /=search C-f/C-b=page q=back Q=quit"
-	b.WriteString(helpStyle.Render(help))
+	helpItems := []types.HelpItem{
+		{Key: "Enter", Desc: "select"},
+		{Key: "/", Desc: "search"},
+		{Key: "C-f/C-b", Desc: "page"},
+		{Key: "q", Desc: "back"},
+		{Key: "Q", Desc: "quit"},
+	}
+	b.WriteString(types.RenderHelpLine(helpItems))
 
 	return b.String()
 }

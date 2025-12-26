@@ -1,7 +1,10 @@
 package types
 
 import (
+	"strings"
+
 	"flowt/internal/api"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // PageType represents different pages in the application
@@ -365,4 +368,28 @@ type LoadingMsg struct {
 
 // LoadingCompleteMsg indicates loading is complete
 type LoadingCompleteMsg struct{}
+
+// --- Helper Functions ---
+
+// HelpItem represents a single help item with key and description
+type HelpItem struct {
+	Key  string
+	Desc string
+}
+
+// RenderHelpLine renders a help line with styled keys
+// Keys are displayed in orange, descriptions in gray, separated by " | "
+func RenderHelpLine(items []HelpItem) string {
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")) // Orange
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")) // Gray
+	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))  // Gray
+
+	var parts []string
+	for _, item := range items {
+		part := keyStyle.Render(item.Key) + descStyle.Render(": "+item.Desc)
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, sepStyle.Render(" | "))
+}
 
