@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,11 +36,13 @@ type LogsModel struct {
 	height int
 
 	// State
-	searchActive bool
-	searchQuery  string
-	loading      bool
-	autoRefresh  bool
-	isNewRun     bool
+	searchActive      bool
+	searchQuery       string
+	loading           bool
+	autoRefresh       bool
+	isNewRun          bool
+	waitingForSecondY bool   // For yy copy sequence
+	copyNotice        string // "Copied!" notice to show temporarily
 
 	// Key bindings
 	keys LogsKeyMap
@@ -61,6 +64,7 @@ type LogsKeyMap struct {
 	Stop         key.Binding
 	OpenEditor   key.Binding
 	OpenPager    key.Binding
+	Yank         key.Binding
 	Search       key.Binding
 	SearchNext   key.Binding
 	SearchPrev   key.Binding
@@ -126,6 +130,10 @@ func DefaultLogsKeyMap() LogsKeyMap {
 		OpenPager: key.NewBinding(
 			key.WithKeys("v"),
 			key.WithHelp("v", "pager"),
+		),
+		Yank: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("yy", "copy"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
@@ -323,6 +331,20 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle yy sequence for copying
+		if m.waitingForSecondY {
+			m.waitingForSecondY = false
+			if key.Matches(msg, m.keys.Yank) {
+				// Second 'y' pressed - execute copy
+				content := m.viewport.GetContent()
+				if content != "" {
+					return m, types.CopyToClipboardCmd(content)
+				}
+				return m, nil
+			}
+			// Other key pressed - fall through to normal handling
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -404,6 +426,11 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			m.updateStatusLine()
 			return m, nil
 
+		case key.Matches(msg, m.keys.Yank):
+			// First 'y' pressed - wait for second 'y'
+			m.waitingForSecondY = true
+			return m, nil
+
 		case key.Matches(msg, m.keys.Home), key.Matches(msg, m.keys.End),
 			key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Down),
 			key.Matches(msg, m.keys.PageUp), key.Matches(msg, m.keys.PageDown),
@@ -463,6 +490,21 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			})
 		}
 
+	case types.CopyToClipboardMsg:
+		if msg.Success {
+			m.copyNotice = "Copied!"
+			// Clear the notice after 2 seconds
+			cmds = append(cmds, clearCopyNoticeCmd())
+		} else if msg.Error != nil {
+			m.copyNotice = fmt.Sprintf("Copy failed: %s", msg.Error.Error())
+			cmds = append(cmds, clearCopyNoticeCmd())
+		}
+		return m, tea.Batch(cmds...)
+
+	case clearCopyNoticeMsg:
+		m.copyNotice = ""
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m = m.SetSize(msg.Width, msg.Height)
 	}
@@ -505,10 +547,13 @@ func (m LogsModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Main logs area
+	// Main logs area - always render the viewport to maintain consistent layout
+	// When loading, show spinner content inside the viewport
 	if m.loading && (m.tabsData == nil || len(m.tabsData.Stages) == 0) {
-		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
-		b.WriteString(loadingStyle.Render(m.spinner.View()))
+		// Create a temporary viewport with spinner content to maintain layout
+		spinnerContent := m.spinner.View()
+		tempViewport := m.viewport.SetContent(spinnerContent)
+		b.WriteString(tempViewport.View())
 	} else {
 		b.WriteString(m.viewport.View())
 	}
@@ -532,8 +577,16 @@ func (m LogsModel) View() string {
 	helpItems = append(helpItems,
 		types.HelpItem{Key: "/", Desc: "search"},
 		types.HelpItem{Key: "e", Desc: "editor"},
+		types.HelpItem{Key: "yy", Desc: "copy"},
 		types.HelpItem{Key: "q", Desc: "back"},
 	)
+
+	// Show copy notice if active
+	if m.copyNotice != "" {
+		noticeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Bold(true)
+		b.WriteString(noticeStyle.Render(m.copyNotice))
+		b.WriteString(" | ")
+	}
 	b.WriteString(types.RenderHelpLine(helpItems))
 
 	return b.String()
@@ -541,6 +594,15 @@ func (m LogsModel) View() string {
 
 func (m LogsModel) renderTabsLine() string {
 	if m.tabsData == nil || len(m.tabsData.Stages) == 0 {
+		// Show a placeholder tab when loading to maintain consistent layout
+		if m.loading {
+			placeholderStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color("#374151")).
+				Foreground(lipgloss.Color("#9CA3AF")).
+				Italic(true).
+				Padding(0, 1)
+			return placeholderStyle.Render("○ Loading stages...")
+		}
 		empty := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
 		return empty.Render("No stages")
 	}
@@ -668,6 +730,16 @@ type LogsTabsRefreshMsg struct {
 type LogsTabLoadMsg struct {
 	TabsData *types.RunStageTabsData
 	TabIndex int
+}
+
+// clearCopyNoticeMsg is sent to clear the copy notice after a delay
+type clearCopyNoticeMsg struct{}
+
+// clearCopyNoticeCmd returns a command that clears the copy notice after 2 seconds
+func clearCopyNoticeCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return clearCopyNoticeMsg{}
+	})
 }
 
 

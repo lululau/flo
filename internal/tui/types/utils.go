@@ -78,78 +78,96 @@ func FormatTimeWithSeconds(t time.Time) string {
 
 // OpenInEditorCmd creates a command to open content in an external editor
 func OpenInEditorCmd(content, editor string) tea.Cmd {
-	return func() tea.Msg {
-		if editor == "" {
+	if editor == "" {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("no editor configured")}
 		}
+	}
 
-		// Create a temporary file
-		tmpDir := os.TempDir()
-		tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
+	// Create a temporary file synchronously before returning the command
+	tmpDir := os.TempDir()
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
 
-		err := os.WriteFile(tmpFile, []byte(content), 0644)
-		if err != nil {
+	err := os.WriteFile(tmpFile, []byte(content), 0644)
+	if err != nil {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("failed to write temporary file: %w", err)}
 		}
+	}
 
-		// Parse editor command (might have arguments)
-		cmdParts := strings.Fields(editor)
-		if len(cmdParts) == 0 {
+	// Parse editor command (might have arguments)
+	cmdParts := strings.Fields(editor)
+	if len(cmdParts) == 0 {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("invalid editor command")}
 		}
-
-		// Add the temporary file as the last argument
-		cmdParts = append(cmdParts, tmpFile)
-
-		// Create the command
-		c := exec.Command(cmdParts[0], cmdParts[1:]...)
-		return tea.ExecProcess(c, func(err error) tea.Msg {
-			// Clean up temp file after editor closes
-			os.Remove(tmpFile)
-			if err != nil {
-				return ErrorMsg{Err: fmt.Errorf("editor command failed: %w", err)}
-			}
-			return EditorClosedMsg{}
-		})
 	}
+
+	// Add the temporary file as the last argument
+	cmdParts = append(cmdParts, tmpFile)
+
+	// Create the command
+	c := exec.Command(cmdParts[0], cmdParts[1:]...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	// tea.ExecProcess returns a tea.Cmd, so return it directly
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Clean up temp file after editor closes
+		os.Remove(tmpFile)
+		if err != nil {
+			return ErrorMsg{Err: fmt.Errorf("editor command failed: %w", err)}
+		}
+		return EditorClosedMsg{}
+	})
 }
 
 // OpenInPagerCmd creates a command to open content in an external pager
 func OpenInPagerCmd(content, pager string) tea.Cmd {
-	return func() tea.Msg {
-		if pager == "" {
+	if pager == "" {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("no pager configured")}
 		}
+	}
 
-		// Create a temporary file
-		tmpDir := os.TempDir()
-		tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
+	// Create a temporary file synchronously before returning the command
+	tmpDir := os.TempDir()
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flowt_logs_%d.txt", time.Now().Unix()))
 
-		err := os.WriteFile(tmpFile, []byte(content), 0644)
-		if err != nil {
+	err := os.WriteFile(tmpFile, []byte(content), 0644)
+	if err != nil {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("failed to write temporary file: %w", err)}
 		}
+	}
 
-		// Parse pager command (might have arguments)
-		cmdParts := strings.Fields(pager)
-		if len(cmdParts) == 0 {
+	// Parse pager command (might have arguments)
+	cmdParts := strings.Fields(pager)
+	if len(cmdParts) == 0 {
+		return func() tea.Msg {
 			return ErrorMsg{Err: fmt.Errorf("invalid pager command")}
 		}
-
-		// Add the temporary file as the last argument
-		cmdParts = append(cmdParts, tmpFile)
-
-		// Create the command
-		c := exec.Command(cmdParts[0], cmdParts[1:]...)
-		return tea.ExecProcess(c, func(err error) tea.Msg {
-			// Clean up temp file after pager closes
-			os.Remove(tmpFile)
-			if err != nil {
-				return ErrorMsg{Err: fmt.Errorf("pager command failed: %w", err)}
-			}
-			return PagerClosedMsg{}
-		})
 	}
+
+	// Add the temporary file as the last argument
+	cmdParts = append(cmdParts, tmpFile)
+
+	// Create the command
+	c := exec.Command(cmdParts[0], cmdParts[1:]...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	// tea.ExecProcess returns a tea.Cmd, so return it directly
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Clean up temp file after pager closes
+		os.Remove(tmpFile)
+		if err != nil {
+			return ErrorMsg{Err: fmt.Errorf("pager command failed: %w", err)}
+		}
+		return PagerClosedMsg{}
+	})
 }
 
 // Clamp returns a value clamped between min and max
@@ -250,5 +268,57 @@ func FindMatchPositions(text, query string) []int {
 // GetLineNumber returns the line number (0-based) for a position in text
 func GetLineNumber(text string, position int) int {
 	return strings.Count(text[:position], "\n")
+}
+
+// CopyToClipboardMsg is sent when content is copied to clipboard
+type CopyToClipboardMsg struct {
+	Success bool
+	Error   error
+}
+
+// CopyToClipboardCmd creates a command to copy content to the system clipboard
+// Uses platform-specific commands: pbcopy (macOS), xclip/xsel (Linux), clip (Windows)
+func CopyToClipboardCmd(content string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+
+		// Try different clipboard commands based on platform
+		switch {
+		case commandExists("pbcopy"):
+			// macOS
+			cmd = exec.Command("pbcopy")
+		case commandExists("xclip"):
+			// Linux with xclip
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		case commandExists("xsel"):
+			// Linux with xsel
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		case commandExists("clip"):
+			// Windows (clip.exe)
+			cmd = exec.Command("clip")
+		default:
+			return CopyToClipboardMsg{
+				Success: false,
+				Error:   fmt.Errorf("no clipboard command available (tried pbcopy, xclip, xsel, clip)"),
+			}
+		}
+
+		// Write content to stdin of the clipboard command
+		cmd.Stdin = strings.NewReader(content)
+		if err := cmd.Run(); err != nil {
+			return CopyToClipboardMsg{
+				Success: false,
+				Error:   fmt.Errorf("failed to copy to clipboard: %w", err),
+			}
+		}
+
+		return CopyToClipboardMsg{Success: true}
+	}
+}
+
+// commandExists checks if a command exists in the system PATH
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
 }
 

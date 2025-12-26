@@ -161,6 +161,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if pipelineID != "" {
+			// Save current page to previousPages before navigating to logs
+			if m.currentPage != types.PageLogs {
+				m.previousPages = append(m.previousPages, pageState{
+					page: m.currentPage,
+					data: m.getPageData(),
+				})
+			}
 			m.logsPage = m.logsPage.SetStarting(pipelineID, pipelineName)
 			m.logsPage = m.logsPage.SetAutoRefresh(false) // enable once runID is known
 			m.currentPage = types.PageLogs
@@ -189,6 +196,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pipelineID = m.historyPage.GetPipelineID()
 					pipelineName = m.historyPage.GetPipelineName()
 				}
+			}
+
+			// Save current page to previousPages if not already on logs page
+			// (BranchSelectedMsg already saves the state when navigating to logs)
+			if m.currentPage != types.PageLogs {
+				m.previousPages = append(m.previousPages, pageState{
+					page: m.currentPage,
+					data: m.getPageData(),
+				})
 			}
 
 			m.logsPage = m.logsPage.SetRun(pipelineID, pipelineName, msg.RunID, "RUNNING", true)
