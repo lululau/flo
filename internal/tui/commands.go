@@ -164,6 +164,235 @@ func LoadLogsCmd(client *api.Client, organizationID, pipelineID, runID string) t
 	}
 }
 
+// LoadLogsWithStreamStateCmd loads logs and initializes the stream state for incremental fetching
+// This should be used for the initial load when viewing logs for a running pipeline
+func LoadLogsWithStreamStateCmd(client *api.Client, organizationID, pipelineID, runID string) tea.Cmd {
+	return func() tea.Msg {
+		// Get run details
+		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
+		if err != nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
+		}
+
+		// Initialize stream state
+		streamState := types.NewLogStreamState(pipelineID, runID)
+
+		// Format logs and build stream state
+		var logContent strings.Builder
+		logContent.WriteString(formatRunOverview(details))
+
+		totalJobs := countTotalJobs(details)
+		currentJob := 0
+
+		for _, stage := range details.Stages {
+			logContent.WriteString(fmt.Sprintf("\n=== Stage: %s ===\n", stage.Name))
+
+			for _, job := range stage.Jobs {
+				currentJob++
+				logContent.WriteString(fmt.Sprintf("\n--- Job: %s (Status: %s) ---\n", job.Name, job.Status))
+
+				// Create job log state
+				jobState := &types.JobLogState{
+					JobId:      job.ID,
+					JobName:    job.Name,
+					StageIndex: stage.Index,
+					StageName:  stage.Name,
+					Steps:      make(map[int]*types.StepLogState),
+					IsComplete: job.Status == "SUCCESS" || job.Status == "FAILED" || job.Status == "CANCELED",
+				}
+
+				// Check if this is a VM deployment job
+				if isVMDeploymentJob(&job) {
+					vmLogs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
+					if err != nil {
+						logContent.WriteString(fmt.Sprintf("Failed to get VM deployment logs: %s\n", err))
+					} else {
+						logContent.WriteString(vmLogs)
+					}
+					// VM deployment jobs don't support incremental fetching
+				} else {
+					// Get job steps for incremental log support
+					jobIDStr := fmt.Sprintf("%d", job.ID)
+					jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
+					if err == nil && jobSteps != nil {
+						// Fetch logs for each step and track positions
+						for _, step := range jobSteps.BuildProcessNodes {
+							stepLogResult, err := client.GetPipelineJobStepLog(
+								organizationID, pipelineID, runID, jobIDStr,
+								step.StepIndex, jobSteps.BuildId, 0, 100000, // Large initial limit
+							)
+							
+							if err == nil && stepLogResult != nil {
+								if stepLogResult.Logs != "" {
+									logContent.WriteString(fmt.Sprintf("[Step: %s]\n", step.StepName))
+									logContent.WriteString(stepLogResult.Logs)
+									if !strings.HasSuffix(stepLogResult.Logs, "\n") {
+										logContent.WriteString("\n")
+									}
+								}
+								
+								// Track step state for incremental fetching
+								jobState.Steps[step.StepIndex] = &types.StepLogState{
+									StepIndex: step.StepIndex,
+									BuildId:   jobSteps.BuildId,
+									LastPos:   stepLogResult.Last,
+									HasMore:   stepLogResult.More,
+								}
+							}
+						}
+					} else {
+						// Fallback to regular job log if steps API fails
+						jobLog, err := client.GetPipelineJobRunLog(organizationID, pipelineID, runID, jobIDStr)
+						if err != nil {
+							logContent.WriteString(fmt.Sprintf("Failed to get job log: %s\n", err))
+						} else {
+							logContent.WriteString(jobLog + "\n")
+						}
+					}
+				}
+
+				streamState.Jobs[job.ID] = jobState
+			}
+		}
+
+		streamState.Initialized = true
+
+		return types.LogsAPILoadedMsg{
+			Details:     details,
+			LogContent:  logContent.String(),
+			Status:      details.Status,
+			CurrentJob:  currentJob,
+			TotalJobs:   totalJobs,
+			IsComplete:  true,
+			StreamState: streamState,
+		}
+	}
+}
+
+// LoadLogsIncrementalCmd loads only the new log content since the last fetch
+// This is much more efficient for running pipelines as it only fetches incremental data
+func LoadLogsIncrementalCmd(client *api.Client, organizationID string, streamState *types.LogStreamState) tea.Cmd {
+	return func() tea.Msg {
+		if streamState == nil || !streamState.Initialized {
+			// Fall back to full load if no stream state
+			return types.ErrorMsg{Err: fmt.Errorf("stream state not initialized")}
+		}
+
+		pipelineID := streamState.PipelineID
+		runID := streamState.RunID
+
+		// Get current run details to check status
+		details, err := client.GetPipelineRunDetails(organizationID, pipelineID, runID)
+		if err != nil {
+			return types.ErrorMsg{Err: fmt.Errorf("failed to get run details: %w", err)}
+		}
+
+		var incrementalContent strings.Builder
+		hasNewContent := false
+
+		// Iterate through stages and jobs to fetch incremental logs
+		for _, stage := range details.Stages {
+			for _, job := range stage.Jobs {
+				jobState, exists := streamState.Jobs[job.ID]
+				
+				// Skip if job was already complete
+				if exists && jobState.IsComplete {
+					continue
+				}
+
+				// Create job state if it doesn't exist (new job)
+				if !exists {
+					jobState = &types.JobLogState{
+						JobId:      job.ID,
+						JobName:    job.Name,
+						StageIndex: stage.Index,
+						StageName:  stage.Name,
+						Steps:      make(map[int]*types.StepLogState),
+						IsComplete: false,
+					}
+					streamState.Jobs[job.ID] = jobState
+					
+					// Write new job header
+					incrementalContent.WriteString(fmt.Sprintf("\n=== Stage: %s ===\n", stage.Name))
+					incrementalContent.WriteString(fmt.Sprintf("\n--- Job: %s (Status: %s) ---\n", job.Name, job.Status))
+					hasNewContent = true
+				}
+
+				// Skip VM deployment jobs for incremental (they don't support it well)
+				if isVMDeploymentJob(&job) {
+					continue
+				}
+
+				// Get steps for this job
+				jobIDStr := fmt.Sprintf("%d", job.ID)
+				jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
+				if err != nil {
+					continue
+				}
+
+				// Fetch incremental logs for each step
+				for _, step := range jobSteps.BuildProcessNodes {
+					stepState, stepExists := jobState.Steps[step.StepIndex]
+					
+					var offset int64 = 0
+					if stepExists {
+						// Skip if no more logs expected
+						if !stepState.HasMore && stepState.LastPos > 0 {
+							continue
+						}
+						offset = stepState.LastPos
+					}
+
+					// Fetch incremental log content
+					stepLogResult, err := client.GetPipelineJobStepLog(
+						organizationID, pipelineID, runID, jobIDStr,
+						step.StepIndex, jobSteps.BuildId, offset, 50000,
+					)
+					
+					if err != nil {
+						continue
+					}
+
+					if stepLogResult.Logs != "" {
+						// Add step header if this is a new step
+						if !stepExists {
+							incrementalContent.WriteString(fmt.Sprintf("[Step: %s]\n", step.StepName))
+						}
+						incrementalContent.WriteString(stepLogResult.Logs)
+						if !strings.HasSuffix(stepLogResult.Logs, "\n") {
+							incrementalContent.WriteString("\n")
+						}
+						hasNewContent = true
+					}
+
+					// Update step state
+					if !stepExists {
+						jobState.Steps[step.StepIndex] = &types.StepLogState{
+							StepIndex: step.StepIndex,
+							BuildId:   jobSteps.BuildId,
+							LastPos:   stepLogResult.Last,
+							HasMore:   stepLogResult.More,
+						}
+					} else {
+						stepState.LastPos = stepLogResult.Last
+						stepState.HasMore = stepLogResult.More
+					}
+				}
+
+				// Update job completion state
+				jobState.IsComplete = job.Status == "SUCCESS" || job.Status == "FAILED" || job.Status == "CANCELED"
+			}
+		}
+
+		return types.LogsIncrementalLoadedMsg{
+			IncrementalContent: incrementalContent.String(),
+			Status:             details.Status,
+			StreamState:        streamState,
+			HasNewContent:      hasNewContent,
+		}
+	}
+}
+
 // RunPipelineCmd runs a pipeline
 func RunPipelineCmd(client *api.Client, organizationID, pipelineID, branch string) tea.Cmd {
 	return func() tea.Msg {

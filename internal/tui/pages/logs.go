@@ -43,6 +43,10 @@ type LogsModel struct {
 	refreshTicker *time.Ticker
 	stopRefresh   chan struct{}
 
+	// Incremental refresh state
+	streamState        *types.LogStreamState // State for incremental log fetching
+	incrementalEnabled bool                  // Whether incremental refresh is active
+
 	// Key bindings
 	keys LogsKeyMap
 }
@@ -188,6 +192,9 @@ func (m LogsModel) SetRun(pipelineID, pipelineName, runID, status string, isNewR
 	m.status = status
 	m.isNewRun = isNewRun
 	m.viewport = m.viewport.SetTitle(fmt.Sprintf("Logs: %s (Run #%s)", pipelineName, runID))
+	// Reset incremental state for new run context
+	m.streamState = types.NewLogStreamState(pipelineID, runID)
+	m.incrementalEnabled = false
 	return m
 }
 
@@ -262,6 +269,28 @@ func (m LogsModel) GetContent() string {
 func (m LogsModel) IsRunning() bool {
 	status := strings.ToUpper(m.status)
 	return status == "RUNNING" || status == "QUEUED" || status == "INIT"
+}
+
+// GetStreamState returns the current log stream state
+func (m LogsModel) GetStreamState() *types.LogStreamState {
+	return m.streamState
+}
+
+// SetStreamState sets the log stream state
+func (m LogsModel) SetStreamState(state *types.LogStreamState) LogsModel {
+	m.streamState = state
+	return m
+}
+
+// IsIncrementalEnabled returns whether incremental refresh is enabled
+func (m LogsModel) IsIncrementalEnabled() bool {
+	return m.incrementalEnabled && m.streamState != nil && m.streamState.Initialized
+}
+
+// SetIncrementalEnabled enables or disables incremental refresh mode
+func (m LogsModel) SetIncrementalEnabled(enabled bool) LogsModel {
+	m.incrementalEnabled = enabled
+	return m
 }
 
 // updateStatusLine updates the status line
@@ -394,6 +423,13 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 		m.viewport = m.viewport.SetContent(m.content)
 		m.loading = false
 		m.spinner = m.spinner.SetActive(false)
+		
+		// Update stream state if provided (for incremental loading)
+		if msg.StreamState != nil {
+			m.streamState = msg.StreamState
+			m.incrementalEnabled = true
+		}
+		
 		m.updateStatusLine()
 
 		// Scroll to bottom for new runs or running pipelines
@@ -428,13 +464,32 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			m.viewport = m.viewport.ScrollToEnd()
 		}
 
+	case types.LogsIncrementalLoadedMsg:
+		// Handle incremental log update
+		m.status = msg.Status
+		if msg.StreamState != nil {
+			m.streamState = msg.StreamState
+		}
+		
+		if msg.HasNewContent && msg.IncrementalContent != "" {
+			m.content += msg.IncrementalContent
+			m.viewport = m.viewport.AppendContent(msg.IncrementalContent)
+			
+			// Auto scroll if at bottom
+			if m.viewport.AtBottom() {
+				m.viewport = m.viewport.ScrollToEnd()
+			}
+		}
+		m.updateStatusLine()
+
 	case types.TickMsg:
 		// Handle auto-refresh tick
 		if m.autoRefresh && m.IsRunning() {
 			cmds = append(cmds, func() tea.Msg {
-				return LogsRefreshMsg{
-					PipelineID: m.pipelineID,
-					RunID:      m.runID,
+				return LogsIncrementalRefreshMsg{
+					PipelineID:  m.pipelineID,
+					RunID:       m.runID,
+					StreamState: m.streamState,
 				}
 			})
 		}
@@ -510,10 +565,17 @@ func logsStatusStyle(status string) lipgloss.Style {
 	}
 }
 
-// LogsRefreshMsg requests refreshing the logs
+// LogsRefreshMsg requests refreshing the logs (full refresh)
 type LogsRefreshMsg struct {
 	PipelineID string
 	RunID      string
+}
+
+// LogsIncrementalRefreshMsg requests incremental log refresh
+type LogsIncrementalRefreshMsg struct {
+	PipelineID  string
+	RunID       string
+	StreamState *types.LogStreamState
 }
 
 // AutoRefreshTickCmd returns a command for auto-refresh ticking

@@ -250,6 +250,7 @@ type LogsAPILoadedMsg struct {
 	CurrentJob  int
 	TotalJobs   int
 	IsComplete  bool
+	StreamState *LogStreamState // Optional stream state for incremental loading
 }
 
 // RunAPIStartedMsg contains response from starting a pipeline run
@@ -292,6 +293,52 @@ type LogsProgressMsg struct {
 	TotalJobs  int
 	IsComplete bool
 	AppendMode bool // If true, append to existing content
+}
+
+// --- Incremental Log Loading ---
+
+// StepLogState tracks the log position for a single step within a job
+type StepLogState struct {
+	StepIndex int   // Step index from API
+	BuildId   int64 // Build ID from API
+	LastPos   int64 // Last position of log content (for incremental fetching)
+	HasMore   bool  // Whether there are more logs available
+}
+
+// JobLogState tracks all step states for a single job
+type JobLogState struct {
+	JobId       int64                   // Job ID
+	JobName     string                  // Job name for display
+	StageIndex  string                  // Parent stage index
+	StageName   string                  // Parent stage name
+	Steps       map[int]*StepLogState   // Map of stepIndex -> StepLogState
+	IsComplete  bool                    // Whether job has finished
+}
+
+// LogStreamState manages incremental log fetching state for a pipeline run
+type LogStreamState struct {
+	PipelineID   string
+	RunID        string
+	Jobs         map[int64]*JobLogState // Map of jobId -> JobLogState
+	Initialized  bool                   // Whether initial state has been fetched
+}
+
+// NewLogStreamState creates a new LogStreamState
+func NewLogStreamState(pipelineID, runID string) *LogStreamState {
+	return &LogStreamState{
+		PipelineID:  pipelineID,
+		RunID:       runID,
+		Jobs:        make(map[int64]*JobLogState),
+		Initialized: false,
+	}
+}
+
+// LogsIncrementalLoadedMsg is sent when incremental logs are loaded
+type LogsIncrementalLoadedMsg struct {
+	IncrementalContent string           // Only the new log content (to append)
+	Status             string           // Current pipeline status
+	StreamState        *LogStreamState  // Updated stream state
+	HasNewContent      bool             // Whether there's new content to display
 }
 
 // PipelinesProgressMsg is sent during progressive pipeline loading

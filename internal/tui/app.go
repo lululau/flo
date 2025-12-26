@@ -182,10 +182,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logsPage = m.logsPage.SetRun(pipelineID, pipelineName, msg.RunID, "RUNNING", true)
 			m.logsPage = m.logsPage.SetLoading(true)
 			m.logsPage = m.logsPage.SetAutoRefresh(true)
+			m.logsPage = m.logsPage.SetIncrementalEnabled(true)
 			m.currentPage = types.PageLogs
 
+			// Use stream state loading for new runs (enables incremental refresh)
 			return m, tea.Batch(
-				LoadLogsCmd(m.client, m.organizationID, pipelineID, msg.RunID),
+				LoadLogsWithStreamStateCmd(m.client, m.organizationID, pipelineID, msg.RunID),
 				AutoRefreshTickCmd(3*time.Second),
 			)
 		}
@@ -217,15 +219,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.historyPage.GetPipelineID(), msg.Page, perPage)
 
 	case pages.LogsRefreshMsg:
+		// Full refresh requested - reset incremental state
+		m.logsPage = m.logsPage.SetIncrementalEnabled(false)
 		return m, LoadLogsCmd(m.client, m.organizationID, msg.PipelineID, msg.RunID)
+
+	case pages.LogsIncrementalRefreshMsg:
+		// Incremental refresh - only fetch new log content
+		if msg.StreamState != nil && msg.StreamState.Initialized {
+			return m, LoadLogsIncrementalCmd(m.client, m.organizationID, msg.StreamState)
+		}
+		// Fall back to full load if stream state not ready
+		return m, LoadLogsCmd(m.client, m.organizationID, msg.PipelineID, msg.RunID)
+
+	case types.LogsAPILoadedMsg:
+		// After initial load completes, enable incremental mode for running pipelines
+		if m.currentPage == types.PageLogs && m.logsPage.IsRunning() {
+			m.logsPage = m.logsPage.SetIncrementalEnabled(true)
+		}
 
 	case types.TickMsg:
 		// Handle auto-refresh for logs
 		if m.currentPage == types.PageLogs && m.logsPage.IsRunning() {
-			cmds = append(cmds, tea.Batch(
-				LoadLogsCmd(m.client, m.organizationID, m.logsPage.GetPipelineID(), m.logsPage.GetRunID()),
-				AutoRefreshTickCmd(3*time.Second),
-			))
+			streamState := m.logsPage.GetStreamState()
+			if streamState != nil && streamState.Initialized {
+				// Use incremental loading for better performance
+				cmds = append(cmds, tea.Batch(
+					LoadLogsIncrementalCmd(m.client, m.organizationID, streamState),
+					AutoRefreshTickCmd(3*time.Second),
+				))
+			} else {
+				// Fall back to full load if stream state not available
+				cmds = append(cmds, tea.Batch(
+					LoadLogsCmd(m.client, m.organizationID, m.logsPage.GetPipelineID(), m.logsPage.GetRunID()),
+					AutoRefreshTickCmd(3*time.Second),
+				))
+			}
 		}
 	}
 
@@ -340,11 +368,14 @@ func (m Model) navigateTo(page types.PageType, data interface{}) (Model, tea.Cmd
 			status := strings.ToUpper(ctx.Status)
 			if status == "RUNNING" || status == "QUEUED" || status == "INIT" {
 				m.logsPage = m.logsPage.SetAutoRefresh(true)
+				m.logsPage = m.logsPage.SetIncrementalEnabled(true)
+				// Use stream state loading for running pipelines (enables incremental refresh)
 				cmd = tea.Batch(
-					LoadLogsCmd(m.client, m.organizationID, ctx.PipelineID, ctx.RunID),
+					LoadLogsWithStreamStateCmd(m.client, m.organizationID, ctx.PipelineID, ctx.RunID),
 					AutoRefreshTickCmd(3*time.Second),
 				)
 			} else {
+				// For completed pipelines, use regular full load (no incremental needed)
 				cmd = LoadLogsCmd(m.client, m.organizationID, ctx.PipelineID, ctx.RunID)
 			}
 		}

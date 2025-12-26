@@ -1518,6 +1518,153 @@ func (c *Client) GetPipelineJobRunLog(organizationId, pipelineId, pipelineRunId,
 	return "", fmt.Errorf("no log content found in response")
 }
 
+// JobStepProcessNode represents a step process node in a job
+type JobStepProcessNode struct {
+	Finish         bool   `json:"finish"`
+	NodeIndex      int    `json:"nodeIndex"` // Deprecated
+	NodeName       string `json:"nodeName"`  // Deprecated
+	ParentIndex    int    `json:"parentIndex"`
+	Running        bool   `json:"running"`
+	Status         string `json:"status"`
+	StepApiVersion string `json:"stepApiVersion"`
+	StepIndex      int    `json:"stepIndex"`
+	StepName       string `json:"stepName"`
+	SupportDebug   bool   `json:"supportDebug"`
+}
+
+// JobStepsResult represents the result of GetPipelineJobSteps API
+type JobStepsResult struct {
+	ActionCode        string               `json:"actionCode"`
+	ActionName        string               `json:"actionName"`
+	BuildId           int64                `json:"buildId"`
+	JobId             int64                `json:"jobId"` // Deprecated
+	BuildProcessNodes []JobStepProcessNode `json:"buildProcessNodes"`
+}
+
+// JobStepLogResult represents the result of GetPipelineJobStepLog API
+type JobStepLogResult struct {
+	Last int64  `json:"last"` // Position of the last log line returned
+	Logs string `json:"logs"` // Log content
+	More bool   `json:"more"` // Whether there are more logs available
+}
+
+// GetPipelineJobSteps retrieves the steps for a specific job within a pipeline run.
+// This is used to get stepIndex and buildId for incremental log fetching.
+// Based on: https://help.aliyun.com/zh/yunxiao/developer-reference/getpipelinejobsteps
+func (c *Client) GetPipelineJobSteps(organizationId, pipelineId, pipelineRunId, jobId string) (*JobStepsResult, error) {
+	if !c.useToken {
+		return nil, fmt.Errorf("GetPipelineJobSteps only supports token-based authentication")
+	}
+
+	if organizationId == "" || pipelineId == "" || pipelineRunId == "" || jobId == "" {
+		return nil, fmt.Errorf("organizationId, pipelineId, pipelineRunId, and jobId are required")
+	}
+
+	// API endpoint: GET https://{domain}/oapi/v1/flow/organizations/{organizationId}/pipelines/{pipelineId}/pipelineRuns/{pipelineRunId}/jobs/{jobId}/steps
+	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s/pipelineRuns/%s/jobs/%s/steps",
+		organizationId, pipelineId, pipelineRunId, jobId)
+	apiURL := fmt.Sprintf("https://%s%s", c.endpoint, path)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if os.Getenv("FLOWT_DEBUG") == "1" {
+		debugLogger.Printf("GetPipelineJobSteps URL: %s", apiURL)
+		debugLogger.Printf("Response Status: %d", resp.StatusCode)
+		debugLogger.Printf("Response Body: %.1000s", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result JobStepsResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetPipelineJobStepLog retrieves logs for a specific step within a job, supporting incremental fetching.
+// Parameters:
+//   - offset: Starting position for logs (use 0 for initial fetch, use 'last' value from previous response for incremental)
+//   - limit: Maximum number of log bytes to retrieve
+//
+// Returns JobStepLogResult with 'last' position for subsequent incremental fetches.
+// Based on: https://help.aliyun.com/zh/yunxiao/developer-reference/getpipelinejobsteplog
+func (c *Client) GetPipelineJobStepLog(organizationId, pipelineId, pipelineRunId, jobId string, stepIndex int, buildId int64, offset int64, limit int) (*JobStepLogResult, error) {
+	if !c.useToken {
+		return nil, fmt.Errorf("GetPipelineJobStepLog only supports token-based authentication")
+	}
+
+	if organizationId == "" || pipelineId == "" || pipelineRunId == "" || jobId == "" {
+		return nil, fmt.Errorf("organizationId, pipelineId, pipelineRunId, and jobId are required")
+	}
+
+	// API endpoint: GET https://{domain}/oapi/v1/flow/organizations/{organizationId}/pipelines/{pipelineId}/pipelineRuns/{pipelineRunId}/jobs/{jobId}/step/log
+	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s/pipelineRuns/%s/jobs/%s/step/log",
+		organizationId, pipelineId, pipelineRunId, jobId)
+	apiURL := fmt.Sprintf("https://%s%s?stepIndex=%d&offset=%d&limit=%d&buildId=%d",
+		c.endpoint, path, stepIndex, offset, limit, buildId)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("x-yunxiao-token", c.personalAccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "flowt-aliyun-devops-client/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if os.Getenv("FLOWT_DEBUG") == "1" {
+		debugLogger.Printf("GetPipelineJobStepLog URL: %s", apiURL)
+		debugLogger.Printf("Response Status: %d", resp.StatusCode)
+		debugLogger.Printf("Response Body: %.1000s", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result JobStepLogResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // GetPipelineRunLogs retrieves logs for all jobs within a pipeline run.
 // This method first gets the pipeline run details to obtain the job list,
 // then fetches logs for each job and concatenates them with job headers.
