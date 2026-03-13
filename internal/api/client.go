@@ -587,9 +587,13 @@ func (c *Client) ListPipelineGroupPipelines(organizationId string, groupId int, 
 				pipelineID = fmt.Sprintf("%.0f", id)
 			}
 
+			pipelineName := getStringField(pipelineMap, "pipelineName")
+			if pipelineName == "" {
+				pipelineName = getStringField(pipelineMap, "name")
+			}
 			pipeline := Pipeline{
 				PipelineID: pipelineID,
-				Name:       getStringField(pipelineMap, "pipelineName"),
+				Name:       pipelineName,
 				CreateTime: createTime,
 				// Note: This API doesn't return status, creator, etc. - only basic info
 			}
@@ -2698,7 +2702,10 @@ func (c *Client) listPipelinesWithTokenAndStatus(organizationId string, statusLi
 				pipelineStatus = lastRunStatus
 			}
 
-			pipelineName := getStringField(pipelineMap, "name")
+			pipelineName := getStringField(pipelineMap, "pipelineName")
+			if pipelineName == "" {
+				pipelineName = getStringField(pipelineMap, "name")
+			}
 
 			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline name: '%s', status: '%s'", pipelineName, pipelineStatus)
@@ -3315,7 +3322,10 @@ func (c *Client) listPipelinesWithTokenAndCallback(organizationId string, status
 				pipelineStatus = lastRunStatus
 			}
 
-			pipelineName := getStringField(pipelineMap, "name")
+			pipelineName := getStringField(pipelineMap, "pipelineName")
+			if pipelineName == "" {
+				pipelineName = getStringField(pipelineMap, "name")
+			}
 
 			if os.Getenv("FLO_DEBUG") == "1" {
 				debugLogger.Printf("Extracted pipeline name: '%s', status: '%s'", pipelineName, pipelineStatus)
