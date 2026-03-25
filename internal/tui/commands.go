@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -128,10 +129,24 @@ func LoadHistoryCmd(client *api.Client, organizationID, pipelineID string, page,
 }
 
 // RunPipelineCmd runs a pipeline
-func RunPipelineCmd(client *api.Client, organizationID, pipelineID, branch string) tea.Cmd {
+func RunPipelineCmd(client *api.Client, organizationID, pipelineID, branch string, repositoryURLs map[string]string) tea.Cmd {
 	return func() tea.Msg {
-		params := map[string]string{
-			"branch": branch,
+		params := make(map[string]string)
+
+		if len(repositoryURLs) > 0 {
+			// Build runningBranchs: map each repo URL to the selected branch
+			runningBranchs := make(map[string]string)
+			for repoURL := range repositoryURLs {
+				runningBranchs[repoURL] = branch
+			}
+			branchJSON, err := json.Marshal(runningBranchs)
+			if err != nil {
+				return types.RunAPIStartedMsg{
+					RunID: "",
+					Error: fmt.Errorf("failed to marshal runningBranchs: %w", err),
+				}
+			}
+			params["runningBranchs"] = string(branchJSON)
 		}
 
 		run, err := client.RunPipeline(organizationID, pipelineID, params)

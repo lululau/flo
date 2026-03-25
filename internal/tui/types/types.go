@@ -295,8 +295,8 @@ type RunAPIStoppedMsg struct {
 
 // BranchSelectedMsg is sent when the user selects a branch
 type BranchSelectedMsg struct {
-	Branch        string
-	RepositoryURL string
+	Branch         string
+	RepositoryURLs map[string]string // repo URL -> branch (from latest run info)
 }
 
 // LoadBranchInfoMsg requests loading branch info for a pipeline

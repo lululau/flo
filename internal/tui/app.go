@@ -188,7 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logsPage = m.logsPage.SetAutoRefresh(false) // enable once runID is known
 			m.currentPage = types.PageLogs
 			m = m.updatePageSizes()
-			return m, RunPipelineCmd(m.client, m.organizationID, pipelineID, msg.Branch)
+			return m, RunPipelineCmd(m.client, m.organizationID, pipelineID, msg.Branch, msg.RepositoryURLs)
 		}
 
 	case types.RunAPIStartedMsg:

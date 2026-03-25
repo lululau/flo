@@ -376,8 +376,9 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 		if branchInput, ok := msg.Data.(string); ok && branchInput != "" {
 			pipeline := m.SelectedPipeline()
 			if pipeline != nil {
+				repoURLs := m.repositoryURLs
 				cmds = append(cmds, func() tea.Msg {
-					return types.BranchSelectedMsg{Branch: branchInput}
+					return types.BranchSelectedMsg{Branch: branchInput, RepositoryURLs: repoURLs}
 				})
 			}
 		}

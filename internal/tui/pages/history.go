@@ -330,8 +330,9 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 	case components.ModalConfirmMsg:
 		// Handle branch input confirmation
 		if branchInput, ok := msg.Data.(string); ok && branchInput != "" {
+			repoURLs := m.repositoryURLs
 			cmds = append(cmds, func() tea.Msg {
-				return types.BranchSelectedMsg{Branch: branchInput}
+				return types.BranchSelectedMsg{Branch: branchInput, RepositoryURLs: repoURLs}
 			})
 		}
 		m.modal = m.modal.Hide()
