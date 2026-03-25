@@ -181,9 +181,9 @@ func NewHistoryModel() HistoryModel {
 func (m HistoryModel) SetSize(width, height int) HistoryModel {
 	m.width = width
 	m.height = height
-	// Reserve space for modeline and help line; include search bar when active
+	// Reserve space for modeline and help line; include search bar when visible
 	reserved := 2 // modeline + help
-	if m.searchActive {
+	if m.searchActive || m.search.HasQuery() {
 		reserved++
 	}
 	tableHeight := height - reserved
@@ -359,27 +359,26 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
-				m = m.SetSize(m.width, m.height) // reflow table height
+				m = m.SetSize(m.width, m.height)
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
-			m = m.SetSize(m.width, m.height) // reflow table height
+			m = m.SetSize(m.width, m.height)
 			m.table = m.table.Search(msg.Query)
 			return m, nil
 
 		case components.SearchCancelMsg:
 			m.searchActive = false
-			m.search = m.search.Deactivate()
-			m = m.SetSize(m.width, m.height) // reflow table height
+			m.search = m.search.DeactivateAndClear()
 			m.searchQuery = ""
+			m = m.SetSize(m.width, m.height)
 			m.table = m.table.ClearSearch()
 			return m, nil
 
 		case components.SearchQueryChangedMsg:
-			// Real-time filtering as user types
 			m.searchQuery = msg.Query
 			m.table = m.table.Search(msg.Query)
 			var cmd tea.Cmd
@@ -400,6 +399,13 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.search = m.search.ClearCommittedQuery()
+				m = m.SetSize(m.width, m.height)
+				m.table = m.table.ClearSearch()
+				return m, nil
+			}
 			return m, func() tea.Msg {
 				return types.GoBackMsg{}
 			}
@@ -462,9 +468,13 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
-			m.search = m.search.Activate()
-			m = m.SetSize(m.width, m.height) // shrink table to make room for search bar
-			return m, m.search.Focus()
+			if m.searchQuery != "" {
+				m.search = m.search.SetQuery(m.searchQuery)
+			}
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Activate()
+			m = m.SetSize(m.width, m.height)
+			return m, cmd
 
 		case key.Matches(msg, m.keys.SearchNext):
 			m.table = m.table.NextSearchMatch()
@@ -541,9 +551,9 @@ func (m HistoryModel) View() string {
 		return centered
 	}
 
-	// Search bar
-	if m.searchActive {
-		b.WriteString(m.search.View())
+	// Search bar (visible when active or when a committed query exists)
+	if searchView := m.search.View(); searchView != "" {
+		b.WriteString(searchView)
 		b.WriteString("\n")
 	}
 

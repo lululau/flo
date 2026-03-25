@@ -175,20 +175,31 @@ func (m TableModel) SetTitle(title string) TableModel {
 	return m
 }
 
-// SetSize sets the table size
+// SetSize sets the table size.
+// height is the total lines available for the entire table block including
+// title, border, and header.
 func (m TableModel) SetSize(width, height int) TableModel {
 	m.width = width
 	m.height = height
-	// Height here represents the total available lines for the table block (content area).
-	// We render a header row ourselves, so dedicate one line for it and use the rest for data rows.
-	headerLines := 1
-	rowArea := height - headerLines
+
+	// The table View renders:
+	//   title line     : 1 (when title is non-empty)
+	//   border top     : 1 (rounded border)
+	//   header row     : 1
+	//   data rows      : rowArea
+	//   border bottom  : 1 (rounded border)
+	// Total = rowArea + 4 (with title) or rowArea + 3 (no title)
+	overhead := 3 // border-top + header + border-bottom
+	if m.title != "" {
+		overhead++
+	}
+	rowArea := height - overhead
 	if rowArea < 1 {
 		rowArea = 1
 	}
 
 	m.table.SetWidth(width - 2) // allow for border padding
-	m.table.SetHeight(rowArea)  // number of data rows to render
+	m.table.SetHeight(rowArea)
 	return m
 }
 

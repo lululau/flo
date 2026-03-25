@@ -194,9 +194,9 @@ func (m PipelinesModel) SetConfig(cfg *config.Config) PipelinesModel {
 func (m PipelinesModel) SetSize(width, height int) PipelinesModel {
 	m.width = width
 	m.height = height
-	// Reserve space for modeline and help line; include search bar when active
+	// Reserve space for modeline and help line; include search bar when visible
 	reserved := 2 // modeline + help
-	if m.searchActive {
+	if m.searchActive || m.search.HasQuery() {
 		reserved++
 	}
 	tableHeight := height - reserved
@@ -406,23 +406,23 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
-				m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
+				m = m.SetSize(m.width, m.height)
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
-			m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
+			m = m.SetSize(m.width, m.height)
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
 
 		case components.SearchCancelMsg:
 			m.searchActive = false
-			m.search = m.search.Deactivate()
-			m = m.SetSize(m.width, m.height) // reflow table height when search bar closes
-			m.searchQuery = ""               // Clear the search on cancel
+			m.search = m.search.DeactivateAndClear()
+			m.searchQuery = ""
+			m = m.SetSize(m.width, m.height)
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
@@ -450,8 +450,15 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.search = m.search.ClearCommittedQuery()
+				m = m.SetSize(m.width, m.height)
+				m.applyFilters()
+				m.updateModeline()
+				return m, nil
+			}
 			if m.viewMode == types.ViewModePipelinesInGroup {
-				// Return to groups view
 				return m, func() tea.Msg {
 					return types.GoBackMsg{}
 				}
@@ -535,9 +542,13 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
-			m.search = m.search.Activate()
-			m = m.SetSize(m.width, m.height) // shrink table to make room for search bar
-			return m, m.search.Focus()
+			if m.searchQuery != "" {
+				m.search = m.search.SetQuery(m.searchQuery)
+			}
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Activate()
+			m = m.SetSize(m.width, m.height)
+			return m, cmd
 
 		case key.Matches(msg, m.keys.SearchNext):
 			m.table = m.table.NextSearchMatch()
@@ -630,9 +641,9 @@ func (m PipelinesModel) View() string {
 		return centered
 	}
 
-	// Search bar
-	if m.searchActive {
-		b.WriteString(m.search.View())
+	// Search bar (visible when active or when a committed query exists)
+	if searchView := m.search.View(); searchView != "" {
+		b.WriteString(searchView)
 		b.WriteString("\n")
 	}
 

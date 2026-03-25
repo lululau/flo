@@ -8,10 +8,11 @@ import (
 
 // SearchModel represents a search input component
 type SearchModel struct {
-	input    textinput.Model
-	active   bool
-	width    int
-	styles   SearchStyles
+	input          textinput.Model
+	active         bool
+	committedQuery string // query to display when not actively editing
+	width          int
+	styles         SearchStyles
 }
 
 // SearchStyles defines styles for the search component
@@ -57,17 +58,43 @@ func (m SearchModel) SetWidth(width int) SearchModel {
 	return m
 }
 
-// Activate activates the search input
-func (m SearchModel) Activate() SearchModel {
+// Activate activates the search input for editing.
+// Returns the updated model and a Cmd for cursor blinking.
+func (m SearchModel) Activate() (SearchModel, tea.Cmd) {
 	m.active = true
-	m.input.Focus()
+	cmd := m.input.Focus()
+	return m, cmd
+}
+
+// Deactivate deactivates the search input but preserves the committed query for display
+func (m SearchModel) Deactivate() SearchModel {
+	m.active = false
+	m.committedQuery = m.input.Value()
+	m.input.Blur()
 	return m
 }
 
-// Deactivate deactivates the search input
-func (m SearchModel) Deactivate() SearchModel {
+// DeactivateAndClear deactivates the search input and clears the committed query
+func (m SearchModel) DeactivateAndClear() SearchModel {
 	m.active = false
+	m.committedQuery = ""
 	m.input.Blur()
+	return m
+}
+
+// HasQuery returns true if there is a committed (non-empty) search query to display
+func (m SearchModel) HasQuery() bool {
+	return m.committedQuery != ""
+}
+
+// CommittedQuery returns the committed query for display
+func (m SearchModel) CommittedQuery() string {
+	return m.committedQuery
+}
+
+// ClearCommittedQuery clears the committed query
+func (m SearchModel) ClearCommittedQuery() SearchModel {
+	m.committedQuery = ""
 	return m
 }
 
@@ -87,9 +114,10 @@ func (m SearchModel) SetQuery(query string) SearchModel {
 	return m
 }
 
-// Clear clears the search query
+// Clear clears the search query and committed query
 func (m SearchModel) Clear() SearchModel {
 	m.input.SetValue("")
+	m.committedQuery = ""
 	return m
 }
 
@@ -154,14 +182,24 @@ func (m SearchModel) Update(msg tea.Msg) (SearchModel, tea.Cmd) {
 
 // View implements tea.Model
 func (m SearchModel) View() string {
-	if !m.active {
-		return ""
+	if m.active {
+		label := m.styles.Label.Render("Search: ")
+		input := m.input.View()
+		return m.styles.Container.Width(m.width).Render(label + input)
 	}
 
-	label := m.styles.Label.Render("Search: ")
-	input := m.input.View()
+	if m.committedQuery != "" {
+		label := m.styles.Label.Render("Search: ")
+		queryText := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB")).
+			Render(m.committedQuery)
+		hint := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280")).
+			Render("  (/ to edit, Esc to clear)")
+		return m.styles.Container.Width(m.width).Render(label + queryText + hint)
+	}
 
-	return m.styles.Container.Width(m.width).Render(label + input)
+	return ""
 }
 
 // SearchExecuteMsg is sent when the search is executed

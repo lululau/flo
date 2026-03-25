@@ -185,7 +185,7 @@ func (m LogsModel) SetSize(width, height int) LogsModel {
 	// Layout lines:
 	// 1 title + 1 tabs + (optional 1 search) + 1 status + 1 help
 	contentHeight := height - 4
-	if m.searchActive {
+	if m.searchActive || m.search.HasQuery() {
 		contentHeight--
 	}
 	if contentHeight < 1 {
@@ -309,18 +309,21 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
+				m = m.SetSize(m.width, m.height)
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
+			m = m.SetSize(m.width, m.height)
 			m.viewport = m.viewport.Search(msg.Query)
 			m.updateStatusLine()
 			return m, nil
 		case components.SearchCancelMsg:
 			m.searchActive = false
-			m.search = m.search.Deactivate()
+			m.search = m.search.DeactivateAndClear()
+			m = m.SetSize(m.width, m.height)
 			return m, nil
 		}
 
@@ -350,6 +353,13 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.search = m.search.ClearCommittedQuery()
+				m = m.SetSize(m.width, m.height)
+				m.updateStatusLine()
+				return m, nil
+			}
 			return m, func() tea.Msg { return types.GoBackMsg{} }
 
 		case key.Matches(msg, m.keys.NextTab):
@@ -413,8 +423,13 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
-			m.search = m.search.Activate()
-			return m, m.search.Focus()
+			if m.searchQuery != "" {
+				m.search = m.search.SetQuery(m.searchQuery)
+			}
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Activate()
+			m = m.SetSize(m.width, m.height)
+			return m, cmd
 
 		case key.Matches(msg, m.keys.SearchNext):
 			m.viewport = m.viewport.NextSearchMatch()
@@ -541,9 +556,9 @@ func (m LogsModel) View() string {
 	b.WriteString(m.renderTabsLine())
 	b.WriteString("\n")
 
-	// Search bar
-	if m.searchActive {
-		b.WriteString(m.search.View())
+	// Search bar (visible when active or when a committed query exists)
+	if searchView := m.search.View(); searchView != "" {
+		b.WriteString(searchView)
 		b.WriteString("\n")
 	}
 

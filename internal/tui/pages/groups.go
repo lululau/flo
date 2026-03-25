@@ -141,8 +141,14 @@ func NewGroupsModel() GroupsModel {
 func (m GroupsModel) SetSize(width, height int) GroupsModel {
 	m.width = width
 	m.height = height
-	// Reserve space for modeline, search, and help line
-	tableHeight := height - 4
+	reserved := 2 // modeline + help
+	if m.searchActive || m.search.HasQuery() {
+		reserved++
+	}
+	tableHeight := height - reserved
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
 	m.table = m.table.SetSize(width, tableHeight)
 	m.modeline = m.modeline.SetWidth(width)
 	m.search = m.search.SetWidth(width)
@@ -240,26 +246,28 @@ func (m GroupsModel) Update(msg tea.Msg) (GroupsModel, tea.Cmd) {
 			if msg.Type == tea.KeyEsc {
 				m.searchActive = false
 				m.search = m.search.Deactivate()
+				m = m.SetSize(m.width, m.height)
 				return m, nil
 			}
 		case components.SearchExecuteMsg:
 			m.searchQuery = msg.Query
 			m.searchActive = false
 			m.search = m.search.Deactivate()
+			m = m.SetSize(m.width, m.height)
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
 
 		case components.SearchCancelMsg:
 			m.searchActive = false
-			m.search = m.search.Deactivate()
-			m.searchQuery = "" // Clear search on cancel
+			m.search = m.search.DeactivateAndClear()
+			m.searchQuery = ""
+			m = m.SetSize(m.width, m.height)
 			m.applyFilters()
 			m.updateModeline()
 			return m, nil
 
 		case components.SearchQueryChangedMsg:
-			// Real-time filtering as user types
 			m.searchQuery = msg.Query
 			m.applyFilters()
 			m.updateModeline()
@@ -281,6 +289,14 @@ func (m GroupsModel) Update(msg tea.Msg) (GroupsModel, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.search = m.search.ClearCommittedQuery()
+				m = m.SetSize(m.width, m.height)
+				m.applyFilters()
+				m.updateModeline()
+				return m, nil
+			}
 			return m, func() tea.Msg {
 				return types.GoBackMsg{}
 			}
@@ -298,8 +314,13 @@ func (m GroupsModel) Update(msg tea.Msg) (GroupsModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
-			m.search = m.search.Activate()
-			return m, m.search.Focus()
+			if m.searchQuery != "" {
+				m.search = m.search.SetQuery(m.searchQuery)
+			}
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Activate()
+			m = m.SetSize(m.width, m.height)
+			return m, cmd
 
 		case key.Matches(msg, m.keys.SearchNext):
 			m.table = m.table.NextSearchMatch()
@@ -348,9 +369,9 @@ func (m GroupsModel) Update(msg tea.Msg) (GroupsModel, tea.Cmd) {
 func (m GroupsModel) View() string {
 	var b strings.Builder
 
-	// Search bar
-	if m.searchActive {
-		b.WriteString(m.search.View())
+	// Search bar (visible when active or when a committed query exists)
+	if searchView := m.search.View(); searchView != "" {
+		b.WriteString(searchView)
 		b.WriteString("\n")
 	}
 
