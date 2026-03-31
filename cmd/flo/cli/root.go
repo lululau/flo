@@ -13,6 +13,11 @@ var rootCmd = &cobra.Command{
 	Use:   "flo",
 	Short: "Aliyun DevOps pipeline manager",
 	Long:  "Flo is a TUI and CLI tool for managing Aliyun DevOps (云效) pipelines.",
+}
+
+var tuiCmd = &cobra.Command{
+	Use:   "tui",
+	Short: "Launch the interactive TUI",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -43,6 +48,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&orgID, "org", "", "Organization ID (overrides config)")
 
 	rootCmd.AddCommand(pipelineCmd)
+	rootCmd.AddCommand(tuiCmd)
 }
 
 var (
