@@ -756,7 +756,10 @@ func computeStageStatus(stage api.Stage) string {
 	if hasSuccess {
 		return "SUCCESS"
 	}
-	return stage.Jobs[0].Status // fallback
+	if len(stage.Jobs) > 0 {
+		return stage.Jobs[0].Status
+	}
+	return "UNKNOWN"
 }
 
 // =========================================================================
