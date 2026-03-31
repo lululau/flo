@@ -41,6 +41,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table, json")
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path (default: ~/.flo/config.yml)")
 	rootCmd.PersistentFlags().StringVar(&orgID, "org", "", "Organization ID (overrides config)")
+
+	rootCmd.AddCommand(pipelineCmd)
 }
 
 var (
