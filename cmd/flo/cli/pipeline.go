@@ -44,6 +44,7 @@ func init() {
 	pipelineCmd.AddCommand(pipelineGroupsCmd)
 	pipelineCmd.AddCommand(pipelineHistoryCmd)
 	pipelineCmd.AddCommand(pipelineRunCmd)
+	pipelineCmd.AddCommand(pipelineStatusCmd)
 	pipelineCmd.AddCommand(pipelineLogsCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)
 }
@@ -475,7 +476,49 @@ func init() {
 	pipelineRunCmd.Flags().BoolVarP(&runFollow, "follow", "f", false, "Follow the pipeline run until completion")
 }
 
-// buildRunningBranches builds the runningBranchs map from a branch spec and repository URLs.
+// =========================================================================
+// flo pipeline status
+// =========================================================================
+
+var (
+	statusPipeline string
+	statusRunID    string
+)
+
+var pipelineStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show pipeline run status",
+	Long:  "Show stage-level status for a pipeline run. Equivalent to `flo pipeline logs` without --stage.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		client, err := newClient(cfg)
+		if err != nil {
+			return err
+		}
+		org := getOrgID(cfg)
+
+		pipelineID, err := resolvePipelineID(client, org, statusPipeline)
+		if err != nil {
+			return err
+		}
+
+		return showStageSummary(client, org, pipelineID, statusRunID)
+	},
+}
+
+func init() {
+	pipelineStatusCmd.Flags().StringVar(&statusPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineStatusCmd.Flags().StringVar(&statusRunID, "run-id", "", "Pipeline run ID (required)")
+	pipelineStatusCmd.MarkFlagRequired("pipeline")
+	pipelineStatusCmd.MarkFlagRequired("run-id")
+}
+
+// =========================================================================
+// flo pipeline run helpers
+// =========================================================================
 //   - "main" -> all repos use "main"
 //   - "repo1:main,repo2:develop" -> match repo URLs by substring
 func buildRunningBranches(branchSpec string, repoURLs map[string]string) map[string]string {
@@ -602,8 +645,46 @@ type jobLog struct {
 	Logs   string `json:"logs"`
 }
 
+// showStageSummary fetches run details and displays a stage summary table.
+// Used by both `flo pipeline status` and `flo pipeline logs` (without --stage).
+func showStageSummary(client *api.Client, orgID, pipelineID, runID string) error {
+	details, err := client.GetPipelineRunDetails(orgID, pipelineID, runID)
+	if err != nil {
+		return fmt.Errorf("failed to get run details: %w", err)
+	}
+
+	if outputFormat == "json" {
+		type stageSummary struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Jobs   int    `json:"jobs"`
+		}
+		summary := make([]stageSummary, 0, len(details.Stages))
+		for _, s := range details.Stages {
+			summary = append(summary, stageSummary{
+				Name:   s.Name,
+				Status: computeStageStatus(s),
+				Jobs:   len(s.Jobs),
+			})
+		}
+		return Output(map[string]interface{}{
+			"runId":  runID,
+			"status": details.Status,
+			"stages": summary,
+		}, nil, nil)
+	}
+
+	fmt.Fprintf(os.Stdout, "Run %s — Status: %s\n\n", runID, details.Status)
+	headers := []string{"STAGE", "STATUS", "JOBS"}
+	var rows [][]string
+	for _, s := range details.Stages {
+		rows = append(rows, []string{s.Name, computeStageStatus(s), fmt.Sprintf("%d", len(s.Jobs))})
+	}
+	return Output(nil, headers, rows)
+}
+
 // showLogs fetches and displays logs for a pipeline run (non-streaming).
-// Without stageFilter, prints a stage summary table.
+// Without stageFilter, delegates to showStageSummary.
 // With stageFilter, prints full logs for that stage.
 func showLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) error {
 	details, err := client.GetPipelineRunDetails(orgID, pipelineID, runID)
@@ -611,40 +692,12 @@ func showLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) 
 		return fmt.Errorf("failed to get run details: %w", err)
 	}
 
-	stages := details.Stages
-
 	// No stage filter: show stage summary table.
 	if stageFilter == "" {
-		if outputFormat == "json" {
-			type stageSummary struct {
-				Name   string `json:"name"`
-				Status string `json:"status"`
-				Jobs   int    `json:"jobs"`
-			}
-			summary := make([]stageSummary, 0, len(stages))
-			for _, s := range stages {
-				summary = append(summary, stageSummary{
-					Name:   s.Name,
-					Status: computeStageStatus(s),
-					Jobs:   len(s.Jobs),
-				})
-			}
-			return Output(map[string]interface{}{
-				"runId":  runID,
-				"status": details.Status,
-				"stages": summary,
-			}, nil, nil)
-		}
-
-		// Table format: list stages so user knows what --stage values are available.
-		fmt.Fprintf(os.Stdout, "Run %s — Status: %s\n\n", runID, details.Status)
-		headers := []string{"STAGE", "STATUS", "JOBS"}
-		var rows [][]string
-		for _, s := range stages {
-			rows = append(rows, []string{s.Name, computeStageStatus(s), fmt.Sprintf("%d", len(s.Jobs))})
-		}
-		return Output(nil, headers, rows)
+		return showStageSummary(client, orgID, pipelineID, runID)
 	}
+
+	stages := details.Stages
 
 	// Stage filter specified: show full logs for matching stage.
 	var matched *api.Stage
