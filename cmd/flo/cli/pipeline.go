@@ -423,14 +423,21 @@ var pipelineRunCmd = &cobra.Command{
 
 		// Get repository URLs from the latest run info.
 		params := make(map[string]string)
-		if runBranch != "" {
-			runInfo, err := client.GetLatestPipelineRunInfo(org, pipelineID)
-			if err != nil {
-				return fmt.Errorf("failed to get pipeline repository info: %w", err)
-			}
+		runInfo, err := client.GetLatestPipelineRunInfo(org, pipelineID)
+		if err != nil {
+			return fmt.Errorf("failed to get pipeline repository info: %w", err)
+		}
 
+		if runBranch != "" {
 			runningBranchs := buildRunningBranches(runBranch, runInfo.RepositoryURLs)
 			branchJSON, err := json.Marshal(runningBranchs)
+			if err != nil {
+				return fmt.Errorf("failed to marshal runningBranchs: %w", err)
+			}
+			params["runningBranchs"] = string(branchJSON)
+		} else if len(runInfo.RepositoryURLs) > 0 {
+			// No --branch specified: use the same branches as the last run.
+			branchJSON, err := json.Marshal(runInfo.RepositoryURLs)
 			if err != nil {
 				return fmt.Errorf("failed to marshal runningBranchs: %w", err)
 			}

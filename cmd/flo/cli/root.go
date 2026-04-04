@@ -13,6 +13,16 @@ var rootCmd = &cobra.Command{
 	Use:   "flo",
 	Short: "Aliyun DevOps pipeline manager",
 	Long:  "Flo is a TUI and CLI tool for managing Aliyun DevOps (云效) pipelines.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return RunTUI(cfg)
+	},
 }
 
 var tuiCmd = &cobra.Command{
