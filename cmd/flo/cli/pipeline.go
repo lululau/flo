@@ -539,15 +539,16 @@ func followRun(client *api.Client, orgID, pipelineID, runID string) error {
 // =========================================================================
 
 var (
-	logsRunID  string
-	logsStage  string
-	logsFollow bool
+	logsPipeline string
+	logsRunID    string
+	logsStage    string
+	logsFollow   bool
 )
 
 var pipelineLogsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show pipeline run logs",
-	Long:  "Show logs for a pipeline run, optionally filtered by stage.",
+	Long:  "Show logs for a pipeline run. Without --stage, lists all stages with their status. Use --stage to show logs for a specific stage.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -559,26 +560,25 @@ var pipelineLogsCmd = &cobra.Command{
 		}
 		org := getOrgID(cfg)
 
-		// Parse run ID format: pipelineId/runId.
-		parts := strings.SplitN(logsRunID, "/", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid --run-id format, expected pipelineId/runId")
+		pipelineID, err := resolvePipelineID(client, org, logsPipeline)
+		if err != nil {
+			return err
 		}
-		pipelineID := parts[0]
-		runID := parts[1]
 
 		if logsFollow {
-			return streamLogs(client, org, pipelineID, runID, logsStage)
+			return streamLogs(client, org, pipelineID, logsRunID, logsStage)
 		}
-		return showLogs(client, org, pipelineID, runID, logsStage)
+		return showLogs(client, org, pipelineID, logsRunID, logsStage)
 	},
 }
 
 func init() {
-	pipelineLogsCmd.Flags().StringVar(&logsRunID, "run-id", "", "Pipeline run ID in format pipelineId/runId (required)")
-	pipelineLogsCmd.MarkFlagRequired("run-id")
-	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Filter by stage name")
+	pipelineLogsCmd.Flags().StringVar(&logsPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineLogsCmd.Flags().StringVar(&logsRunID, "run-id", "", "Pipeline run ID (required)")
+	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Show logs for a specific stage")
 	pipelineLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Stream logs until run completes")
+	pipelineLogsCmd.MarkFlagRequired("pipeline")
+	pipelineLogsCmd.MarkFlagRequired("run-id")
 }
 
 // stageLog represents a stage with its jobs and logs for JSON output.
@@ -596,6 +596,8 @@ type jobLog struct {
 }
 
 // showLogs fetches and displays logs for a pipeline run (non-streaming).
+// Without stageFilter, prints a stage summary table.
+// With stageFilter, prints full logs for that stage.
 func showLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) error {
 	details, err := client.GetPipelineRunDetails(orgID, pipelineID, runID)
 	if err != nil {
@@ -603,59 +605,84 @@ func showLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) 
 	}
 
 	stages := details.Stages
-	// Filter by stage name if specified.
-	if stageFilter != "" {
-		var filtered []api.Stage
-		for _, s := range stages {
-			if s.Name == stageFilter {
-				filtered = append(filtered, s)
+
+	// No stage filter: show stage summary table.
+	if stageFilter == "" {
+		if outputFormat == "json" {
+			type stageSummary struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+				Jobs   int    `json:"jobs"`
 			}
+			summary := make([]stageSummary, 0, len(stages))
+			for _, s := range stages {
+				summary = append(summary, stageSummary{
+					Name:   s.Name,
+					Status: computeStageStatus(s),
+					Jobs:   len(s.Jobs),
+				})
+			}
+			return Output(map[string]interface{}{
+				"runId":  runID,
+				"status": details.Status,
+				"stages": summary,
+			}, nil, nil)
 		}
-		stages = filtered
+
+		// Table format: list stages so user knows what --stage values are available.
+		fmt.Fprintf(os.Stdout, "Run %s — Status: %s\n\n", runID, details.Status)
+		headers := []string{"STAGE", "STATUS", "JOBS"}
+		var rows [][]string
+		for _, s := range stages {
+			rows = append(rows, []string{s.Name, computeStageStatus(s), fmt.Sprintf("%d", len(s.Jobs))})
+		}
+		return Output(nil, headers, rows)
+	}
+
+	// Stage filter specified: show full logs for matching stage.
+	var matched *api.Stage
+	for i := range stages {
+		if stages[i].Name == stageFilter {
+			matched = &stages[i]
+			break
+		}
+	}
+	if matched == nil {
+		// Stage not found — list available stages.
+		fmt.Fprintf(os.Stderr, "Stage %q not found. Available stages:\n", stageFilter)
+		for _, s := range stages {
+			fmt.Fprintf(os.Stderr, "  %s (%s)\n", s.Name, computeStageStatus(s))
+		}
+		return fmt.Errorf("stage %q not found", stageFilter)
 	}
 
 	if outputFormat == "json" {
-		stageLogs := make([]stageLog, 0, len(stages))
-		for _, stage := range stages {
-			sl := stageLog{
-				Name:   stage.Name,
-				Status: computeStageStatus(stage),
+		sl := stageLog{Name: matched.Name, Status: computeStageStatus(*matched)}
+		for _, job := range matched.Jobs {
+			jobIDStr := fmt.Sprintf("%d", job.ID)
+			logContent, logErr := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
+			if logErr != nil {
+				logContent = fmt.Sprintf("Failed to get job log: %v", logErr)
 			}
-			for _, job := range stage.Jobs {
-				jobIDStr := fmt.Sprintf("%d", job.ID)
-				logContent, logErr := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
-				if logErr != nil {
-					logContent = fmt.Sprintf("Failed to get job log: %v", logErr)
-				}
-				sl.Jobs = append(sl.Jobs, jobLog{
-					Name:   job.Name,
-					Status: job.Status,
-					Logs:   logContent,
-				})
-			}
-			stageLogs = append(stageLogs, sl)
+			sl.Jobs = append(sl.Jobs, jobLog{Name: job.Name, Status: job.Status, Logs: logContent})
 		}
 		return Output(map[string]interface{}{
 			"runId":  runID,
 			"status": details.Status,
-			"stages": stageLogs,
+			"stage":  sl,
 		}, nil, nil)
 	}
 
-	// Table format: print headers and logs.
-	for _, stage := range stages {
-		fmt.Fprintf(os.Stdout, "\n=== Stage: %s (%s) ===\n", stage.Name, computeStageStatus(stage))
-		for _, job := range stage.Jobs {
-			fmt.Fprintf(os.Stdout, "--- Job: %s (%s) ---\n", job.Name, job.Status)
-			jobIDStr := fmt.Sprintf("%d", job.ID)
-			logContent, logErr := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
-			if logErr != nil {
-				fmt.Fprintf(os.Stdout, "Failed to get job log: %v\n", logErr)
-			} else {
-				if logContent != "" {
-					fmt.Fprintln(os.Stdout, logContent)
-				}
-			}
+	// Table format: print stage logs.
+	fmt.Fprintf(os.Stdout, "\n=== Stage: %s (%s) ===\n", matched.Name, computeStageStatus(*matched))
+	for _, job := range matched.Jobs {
+		fmt.Fprintf(os.Stdout, "--- Job: %s (%s) ---\n", job.Name, job.Status)
+		jobIDStr := fmt.Sprintf("%d", job.ID)
+		logContent, logErr := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
+		if logErr != nil {
+			fmt.Fprintf(os.Stdout, "Failed to get job log: %v\n", logErr)
+		} else if logContent != "" {
+			fmt.Fprintln(os.Stdout, logContent)
 		}
 	}
 	return nil
@@ -766,6 +793,7 @@ func computeStageStatus(stage api.Stage) string {
 // Task 8: flo pipeline stop
 // =========================================================================
 
+var stopPipeline string
 var stopRunID string
 
 var pipelineStopCmd = &cobra.Command{
@@ -783,33 +811,32 @@ var pipelineStopCmd = &cobra.Command{
 		}
 		org := getOrgID(cfg)
 
-		// Parse run ID format: pipelineId/runId.
-		parts := strings.SplitN(stopRunID, "/", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid --run-id format, expected pipelineId/runId")
+		pipelineID, err := resolvePipelineID(client, org, stopPipeline)
+		if err != nil {
+			return err
 		}
-		pipelineID := parts[0]
-		runID := parts[1]
 
-		if err := client.StopPipelineRun(org, pipelineID, runID); err != nil {
+		if err := client.StopPipelineRun(org, pipelineID, stopRunID); err != nil {
 			return fmt.Errorf("failed to stop pipeline run: %w", err)
 		}
 
 		if outputFormat == "json" {
 			return Output(map[string]interface{}{
-				"runId":      runID,
+				"runId":      stopRunID,
 				"pipelineId": pipelineID,
 				"status":     "STOPPED",
 				"message":    "Pipeline run stopped successfully",
 			}, nil, nil)
 		}
 
-		fmt.Fprintf(os.Stdout, "Pipeline run %s stopped successfully\n", runID)
+		fmt.Fprintf(os.Stdout, "Pipeline run %s stopped successfully\n", stopRunID)
 		return nil
 	},
 }
 
 func init() {
-	pipelineStopCmd.Flags().StringVar(&stopRunID, "run-id", "", "Pipeline run ID in format pipelineId/runId (required)")
+	pipelineStopCmd.Flags().StringVar(&stopPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineStopCmd.Flags().StringVar(&stopRunID, "run-id", "", "Pipeline run ID (required)")
+	pipelineStopCmd.MarkFlagRequired("pipeline")
 	pipelineStopCmd.MarkFlagRequired("run-id")
 }
