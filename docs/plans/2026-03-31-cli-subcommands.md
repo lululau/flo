@@ -962,14 +962,16 @@ func init() {
 }
 
 var (
-	logsRunID  string
-	logsStage  string
-	logsFollow bool
+	logsPipeline string
+	logsRunID    string
+	logsStage    string
+	logsFollow   bool
 )
 
 var pipelineLogsCmd = &cobra.Command{
 	Use:   "logs",
-	Short: "View pipeline run logs",
+	Short: "Show pipeline run logs",
+	Long:  "Show logs for a pipeline run. Without --stage, lists all stages with their status. Use --stage to show logs for a specific stage.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -981,158 +983,32 @@ var pipelineLogsCmd = &cobra.Command{
 		}
 		orgID := GetOrgID(cfg)
 
-		// Get pipeline ID from run ID — we need both pipelineId and runId
-		// Parse from --run-id which should be pipelineId/runId format or just runId
-		pipelineID, runID, err := parseRunID(logsRunID)
+		pipelineID, err := resolvePipelineID(client, orgID, logsPipeline)
 		if err != nil {
 			return err
 		}
 
 		if logsFollow {
-			return streamLogs(client, orgID, pipelineID, runID, logsStage)
+			return streamLogs(client, orgID, pipelineID, logsRunID, logsStage)
 		}
-
-		return printLogs(client, orgID, pipelineID, runID, logsStage)
+		return showLogs(client, orgID, pipelineID, logsRunID, logsStage)
 	},
 }
 
-func parseRunID(input string) (pipelineID, runID string, err error) {
-	parts := strings.SplitN(input, "/", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1], nil
-	}
-	return "", "", fmt.Errorf("invalid run ID format, expected pipelineId/runId")
-}
-
-func printLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) error {
-	details, err := client.GetPipelineRunDetails(orgID, pipelineID, runID)
-	if err != nil {
-		return fmt.Errorf("failed to get run details: %w", err)
-	}
-
-	type stageOutput struct {
-		Name    string       `json:"name"`
-		Status  string       `json:"status"`
-		Jobs    []jobOutput  `json:"jobs"`
-	}
-	type jobOutput struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
-		Logs   string `json:"logs"`
-	}
-	type logsOutput struct {
-		RunID  string        `json:"runId"`
-		Status string        `json:"status"`
-		Stages []stageOutput `json:"stages"`
-	}
-
-	output := logsOutput{
-		RunID:  runID,
-		Status: details.Status,
-	}
-
-	for _, stage := range details.Stages {
-		if stageFilter != "" && !strings.EqualFold(stage.Name, stageFilter) {
-			continue
-		}
-
-		so := stageOutput{Name: stage.Name, Status: computeStageStatus(stage.Jobs)}
-
-		for _, job := range stage.Jobs {
-			jo := jobOutput{Name: job.Name, Status: job.Status}
-
-			// Get logs for each job
-			jobIDStr := fmt.Sprintf("%d", job.ID)
-			logs, err := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
-			if err != nil {
-				jo.Logs = fmt.Sprintf("Failed to get logs: %s", err)
-			} else {
-				jo.Logs = logs
-			}
-			so.Jobs = append(so.Jobs, jo)
-		}
-
-		output.Stages = append(output.Stages, so)
-
-		// Table output
-		if outputFormat != "json" {
-			fmt.Printf("\n=== Stage: %s (%s) ===\n", stage.Name, so.Status)
-			for _, j := range so.Jobs {
-				fmt.Printf("\n--- Job: %s (%s) ---\n", j.Name, j.Status)
-				if j.Logs != "" {
-					fmt.Print(j.Logs)
-				}
-			}
-		}
-	}
-
-	if outputFormat == "json" {
-		return outputJSON(output)
-	}
-	return nil
-}
-
-func streamLogs(client *api.Client, orgID, pipelineID, runID, stageFilter string) error {
-	for {
-		details, err := client.GetPipelineRunDetails(orgID, pipelineID, runID)
-		if err != nil {
-			return fmt.Errorf("failed to get run details: %w", err)
-		}
-
-		// Print all matching stages
-		for _, stage := range details.Stages {
-			if stageFilter != "" && !strings.EqualFold(stage.Name, stageFilter) {
-				continue
-			}
-			for _, job := range stage.Jobs {
-				if strings.ToUpper(job.Status) != "RUNNING" {
-					continue
-				}
-				jobIDStr := fmt.Sprintf("%d", job.ID)
-				logs, err := client.GetPipelineJobRunLog(orgID, pipelineID, runID, jobIDStr)
-				if err == nil && logs != "" {
-					fmt.Printf("[%s/%s] %s\n", stage.Name, job.Name, logs)
-				}
-			}
-		}
-
-		// Check if run is terminal
-		if isRunTerminal(details.Status) {
-			fmt.Printf("\nPipeline finished: %s\n", details.Status)
-			return nil
-		}
-
-		time.Sleep(3 * time.Second)
-	}
-}
-
-func computeStageStatus(jobs []api.Job) string {
-	anyRunning := false
-	anyFailed := false
-	for _, job := range jobs {
-		switch strings.ToUpper(job.Status) {
-		case "RUNNING":
-			anyRunning = true
-		case "FAILED", "FAIL":
-			anyFailed = true
-		}
-	}
-	if anyFailed {
-		return "FAILED"
-	}
-	if anyRunning {
-		return "RUNNING"
-	}
-	return "SUCCESS"
-}
-
 func init() {
-	pipelineLogsCmd.Flags().StringVar(&logsRunID, "run-id", "", "Run ID in pipelineId/runId format (required)")
-	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Filter by stage name")
-	pipelineLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Follow log output (stream mode)")
+	pipelineLogsCmd.Flags().StringVar(&logsPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineLogsCmd.Flags().StringVar(&logsRunID, "run-id", "", "Pipeline run ID (required)")
+	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Show logs for a specific stage")
+	pipelineLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Stream logs until run completes")
+	pipelineLogsCmd.MarkFlagRequired("pipeline")
 	pipelineLogsCmd.MarkFlagRequired("run-id")
 }
 ```
+
+Key behavior of `showLogs`:
+- Without `--stage`: prints a stage summary table (STAGE / STATUS / JOBS) so user can see available stage names
+- With `--stage NAME`: prints full logs for that stage
+- With invalid `--stage`: prints error with list of available stages
 
 **Step 2: Build and verify**
 
@@ -1165,11 +1041,13 @@ func init() {
 	pipelineCmd.AddCommand(pipelineStopCmd)
 }
 
+var stopPipeline string
 var stopRunID string
 
 var pipelineStopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop a running pipeline",
+	Short: "Stop a pipeline run",
+	Long:  "Stop a running pipeline run.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -1181,38 +1059,33 @@ var pipelineStopCmd = &cobra.Command{
 		}
 		orgID := GetOrgID(cfg)
 
-		pipelineID, runID, err := parseRunID(stopRunID)
+		pipelineID, err := resolvePipelineID(client, orgID, stopPipeline)
 		if err != nil {
 			return err
 		}
 
-		if err := client.StopPipelineRun(orgID, pipelineID, runID); err != nil {
-			return fmt.Errorf("failed to stop pipeline: %w", err)
-		}
-
-		type stopOutput struct {
-			RunID      string `json:"runId"`
-			PipelineID string `json:"pipelineId"`
-			Status     string `json:"status"`
-			Message    string `json:"message"`
-		}
-		output := stopOutput{
-			RunID:      runID,
-			PipelineID: pipelineID,
-			Status:     "STOPPED",
-			Message:    "Pipeline run stopped successfully",
+		if err := client.StopPipelineRun(orgID, pipelineID, stopRunID); err != nil {
+			return fmt.Errorf("failed to stop pipeline run: %w", err)
 		}
 
 		if outputFormat == "json" {
-			return outputJSON(output)
+			return Output(map[string]interface{}{
+				"runId":      stopRunID,
+				"pipelineId": pipelineID,
+				"status":     "STOPPED",
+				"message":    "Pipeline run stopped successfully",
+			}, nil, nil)
 		}
-		fmt.Printf("Pipeline run %s stopped successfully\n", runID)
+
+		fmt.Fprintf(os.Stdout, "Pipeline run %s stopped successfully\n", stopRunID)
 		return nil
 	},
 }
 
 func init() {
-	pipelineStopCmd.Flags().StringVar(&stopRunID, "run-id", "", "Run ID in pipelineId/runId format (required)")
+	pipelineStopCmd.Flags().StringVar(&stopPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineStopCmd.Flags().StringVar(&stopRunID, "run-id", "", "Pipeline run ID (required)")
+	pipelineStopCmd.MarkFlagRequired("pipeline")
 	pipelineStopCmd.MarkFlagRequired("run-id")
 }
 ```
@@ -1254,10 +1127,13 @@ Expected: Clean build
 ./flo pipeline stop --help
 ```
 
-**Step 3: Verify backward compatibility**
+**Step 3: Verify bare flo shows help**
 
 Run: `./flo` (no args)
-Expected: TUI launches (same as before)
+Expected: Shows help, not TUI
+
+Run: `./flo tui`
+Expected: TUI launches
 
 **Step 4: Verify JSON output format**
 

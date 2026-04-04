@@ -7,7 +7,8 @@ Add non-interactive CLI interfaces for all existing TUI features, using Cobra fr
 ## Command Structure
 
 ```
-flo                          → TUI (backward compatible)
+flo                          → Show help
+flo tui                       → Launch interactive TUI
 flo pipeline list             → List pipelines
 flo pipeline groups           → List pipeline groups
 flo pipeline history          → View run history
@@ -59,18 +60,19 @@ flo pipeline run --pipeline NAME|ID --branch REPO:BRANCH,... [-o json]
 ### `flo pipeline logs`
 
 ```
-flo pipeline logs --run-id RUN_ID [--stage NAME] [-f] [-o json]
+flo pipeline logs --pipeline NAME|ID --run-id RUN_ID [--stage NAME] [-f] [-o json]
 ```
 
-- Default: output all stage logs at once
-- `--stage` to specify a stage
+- Without `--stage`: lists all stages with their status and job count (table), so user can see available stage names
+- With `--stage NAME`: shows full logs for that specific stage
+- With invalid `--stage`: prints error with list of available stage names
 - `-f` for streaming/follow mode (like TUI auto-refresh)
 - JSON mode outputs structured log data
 
 ### `flo pipeline stop`
 
 ```
-flo pipeline stop --run-id RUN_ID [-o json]
+flo pipeline stop --pipeline NAME|ID --run-id RUN_ID [-o json]
 ```
 
 - Output: operation result + current status
@@ -94,7 +96,7 @@ cmd/flo/
     └── output.go        # table/JSON formatting utilities
 ```
 
-Key principle: **reuse existing API client** (`internal/api/client.go`), bypass TUI layer entirely. No changes to existing TUI code.
+Key principle: **reuse existing API client** (`internal/api/client.go`), bypass TUI layer entirely. No changes to existing TUI code. Bare `flo` shows help; TUI is launched via `flo tui`.
 
 ## New Dependencies
 
