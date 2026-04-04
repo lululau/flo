@@ -63,7 +63,7 @@ var (
 var pipelineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List pipelines",
-	Long:  "List all pipelines with optional filtering and sorting.",
+	Long:  "List all pipelines. Columns: NAME, STATUS, LAST RUN, CREATOR. Supports filtering by status, search by name, sort, and bookmark.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -179,7 +179,7 @@ var groupsSearch string
 var pipelineGroupsCmd = &cobra.Command{
 	Use:   "groups",
 	Short: "List pipeline groups",
-	Long:  "List all pipeline groups with optional filtering.",
+	Long:  "List all pipeline groups. Columns: NAME, ID.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -246,7 +246,7 @@ var (
 var pipelineHistoryCmd = &cobra.Command{
 	Use:   "history",
 	Short: "Show pipeline run history",
-	Long:  "Show the run history for a specific pipeline.",
+	Long:  "Show run history for a pipeline. Columns: RUN ID, STATUS, TRIGGER, START TIME, DURATION. Supports pagination and status filtering.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -339,7 +339,7 @@ func init() {
 	pipelineHistoryCmd.Flags().StringVar(&historyPipeline, "pipeline", "", "Pipeline name or ID (required)")
 	pipelineHistoryCmd.MarkFlagRequired("pipeline")
 	pipelineHistoryCmd.Flags().StringVar(&historyStatus, "status", "all", "Filter by status: all, running, success, failed")
-	pipelineHistoryCmd.Flags().IntVar(&historyLimit, "limit", 0, "Limit number of results per page")
+	pipelineHistoryCmd.Flags().IntVar(&historyLimit, "limit", 0, "Results per page (default 30, 0 = use default)")
 	pipelineHistoryCmd.Flags().IntVar(&historyPage, "page", 1, "Page number")
 }
 
@@ -404,7 +404,7 @@ var (
 var pipelineRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run a pipeline",
-	Long:  "Trigger a pipeline run with optional branch specification and follow mode.",
+	Long:  "Trigger a pipeline run. Without --branch, uses the same branches as the last run (same as TUI). Use -f to follow until completion.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -472,7 +472,7 @@ var pipelineRunCmd = &cobra.Command{
 func init() {
 	pipelineRunCmd.Flags().StringVar(&runPipeline, "pipeline", "", "Pipeline name or ID (required)")
 	pipelineRunCmd.MarkFlagRequired("pipeline")
-	pipelineRunCmd.Flags().StringVar(&runBranch, "branch", "", "Branch spec: 'main' or 'repo1:main,repo2:develop'")
+	pipelineRunCmd.Flags().StringVar(&runBranch, "branch", "", "Branch spec: 'main' (all repos) or 'repo1:main,repo2:develop' (per-repo). Default: same as last run")
 	pipelineRunCmd.Flags().BoolVarP(&runFollow, "follow", "f", false, "Follow the pipeline run until completion")
 }
 
@@ -488,7 +488,7 @@ var (
 var pipelineStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show pipeline run status",
-	Long:  "Show stage-level status for a pipeline run. Equivalent to `flo pipeline logs` without --stage.",
+	Long:  "Show stage-level status for a pipeline run. Columns: STAGE, STATUS, JOBS.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -598,7 +598,7 @@ var (
 var pipelineLogsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show pipeline run logs",
-	Long:  "Show logs for a pipeline run. Without --stage, lists all stages with their status. Use --stage to show logs for a specific stage.",
+	Long:  "Show logs for a pipeline run. Without --stage, displays stage summary (same as 'flo pipeline status'). With --stage, shows full logs for that stage. Invalid --stage lists available stages.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -625,7 +625,7 @@ var pipelineLogsCmd = &cobra.Command{
 func init() {
 	pipelineLogsCmd.Flags().StringVar(&logsPipeline, "pipeline", "", "Pipeline name or ID (required)")
 	pipelineLogsCmd.Flags().StringVar(&logsRunID, "run-id", "", "Pipeline run ID (required)")
-	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Show logs for a specific stage")
+	pipelineLogsCmd.Flags().StringVar(&logsStage, "stage", "", "Show logs for a specific stage (omit to see stage summary)")
 	pipelineLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Stream logs until run completes")
 	pipelineLogsCmd.MarkFlagRequired("pipeline")
 	pipelineLogsCmd.MarkFlagRequired("run-id")
@@ -859,7 +859,7 @@ var stopRunID string
 var pipelineStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop a pipeline run",
-	Long:  "Stop a running pipeline run.",
+	Long:  "Stop a running pipeline run. Outputs the run ID on success.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
