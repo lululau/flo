@@ -29,6 +29,9 @@ type Config struct {
 	Bookmarks []string `yaml:"bookmarks,omitempty"`
 	// 默认排序方式: last_run_time, name, create_time, update_time, bookmark
 	DefaultSort string `yaml:"default_sort,omitempty"`
+	// 通知命令 - 可选，流水线结束时执行
+	// 支持 text/template 语法，可用占位符: .PipelineName, .Result, .Duration, .Branch
+	NotifyCommand string `yaml:"notify_command,omitempty"`
 }
 
 // GetPerPage returns the number of items per page, defaulting to 30

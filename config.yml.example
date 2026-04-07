@@ -58,6 +58,17 @@ endpoint: "openapi-rdc.aliyuncs.com"
 #   - "my-important-pipeline"
 #   - "production-deployment"
 
+# ===== 通知配置 =====
+# 流水线结束时执行的通知命令 - 可选
+# 支持 text/template 语法，可用占位符:
+#   {{.PipelineName}} - 流水线名称
+#   {{.Result}}       - 结果 (success ✓ / failed ✗ / canceled ○)
+#   {{.Duration}}     - 耗时 (如 2m 35s)
+#   {{.Branch}}       - 触发分支
+# 示例 (macOS): notify_command: "terminal-notifier -title 'flo' -message '{{.PipelineName}} {{.Result}}'"
+# 示例 (Linux): notify_command: "notify-send 'flo' '{{.PipelineName}} {{.Result}}'"
+# notify_command: "terminal-notifier -title 'flo' -message '{{.PipelineName}} {{.Result}}'"
+
 # 注意事项：
 # 1. 请妥善保管您的访问凭证，不要将其提交到公共代码仓库
 # 2. 建议定期轮换访问凭证以提高安全性
