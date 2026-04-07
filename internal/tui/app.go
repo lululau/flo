@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"flo/internal/api"
 	"flo/internal/config"
+	"flo/internal/notify"
 	"flo/internal/tui/components"
 	"flo/internal/tui/pages"
 	"flo/internal/tui/types"
@@ -43,6 +45,12 @@ type Model struct {
 	errorMsg     string
 	autoRefresh  bool
 	refreshTimer *time.Ticker
+
+	// Captures the branch used when starting a pipeline run
+	lastRunBranch string
+
+	// Notification
+	notifier *notify.Notifier
 
 	// Key bindings
 	keys GlobalKeyMap
@@ -83,6 +91,16 @@ func New(cfg *config.Config, client *api.Client) Model {
 		client:         client,
 		organizationID: cfg.OrganizationID,
 		keys:           DefaultGlobalKeyMap(),
+	}
+
+	// Initialize notifier if configured
+	if cfg.NotifyCommand != "" {
+		notifier, err := notify.New(client, cfg.NotifyCommand)
+		if err != nil {
+			log.Printf("failed to create notifier: %v", err)
+		} else if notifier != nil {
+			m.notifier = notifier
+		}
 	}
 
 	return m
@@ -177,6 +195,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if pipelineID != "" {
+			m.lastRunBranch = msg.Branch
+
 			// Save current page to previousPages before navigating to logs
 			if m.currentPage != types.PageLogs {
 				m.previousPages = append(m.previousPages, pageState{
@@ -226,6 +246,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logsPage = m.logsPage.SetRun(pipelineID, pipelineName, msg.RunID, "RUNNING", true)
 			m.logsPage = m.logsPage.SetLoading(true)
 			m.logsPage = m.logsPage.SetAutoRefresh(true)
+
+			// Track this run for background notification
+			if m.notifier != nil {
+				m.notifier.Track(notify.TrackedRun{
+					OrganizationID: m.organizationID,
+					PipelineID:     pipelineID,
+					PipelineName:   pipelineName,
+					RunID:          msg.RunID,
+					Branch:         m.lastRunBranch,
+					StartTime:      time.Now(),
+				})
+			}
+
 			m.currentPage = types.PageLogs
 			m = m.updatePageSizes()
 
