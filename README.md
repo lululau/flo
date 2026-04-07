@@ -12,6 +12,7 @@ Flo 是一个基于 Go 语言开发的命令行 TUI（Terminal User Interface）
 - 📈 **运行历史**：查看流水线运行历史，支持分页浏览和直接查看日志
 - 📊 **智能日志显示**：Stage-tabs 布局查看不同阶段日志，支持自动刷新、手动刷新、Vim 风格搜索、复制到剪贴板
 - 📝 **编辑器和分页器**：支持在外部编辑器或分页器中查看日志
+- 🔔 **完成通知**：流水线运行结束时自动发送桌面通知，支持自定义通知命令和模板
 - 🎨 **现代界面**：基于 Bubble Tea 框架，支持透明背景，适配各种终端主题
 - ⌨️ **Vim 风格快捷键**：支持 j/k 导航、/搜索、yy复制等 Vim 风格的键盘操作
 
@@ -94,6 +95,31 @@ bookmarks:
 - 传统认证方式
 - 需要配置区域（默认 cn-hangzhou）
 - 获取方式：阿里云控制台 → AccessKey管理
+
+### 完成通知
+
+当流水线运行结束时（成功、失败、取消），可以自动执行一条通知命令。这对于在后台监控流水线运行状态非常有用。
+
+在配置文件中添加 `notify_command`，使用 Go `text/template` 语法：
+
+```yaml
+# macOS
+notify_command: "terminal-notifier -title 'flo' -message '{{.PipelineName}} {{.Result}} ({{.Duration}}) [{{.Branch}}]'"
+
+# Linux
+notify_command: "notify-send 'flo' '{{.PipelineName}} {{.Result}} ({{.Duration}}) [{{.Branch}}]'"
+```
+
+可用占位符：
+
+| 占位符 | 说明 | 示例 |
+|--------|------|------|
+| `{{.PipelineName}}` | 流水线名称 | `my-pipeline` |
+| `{{.Result}}` | 运行结果 | `success ✓` / `failed ✗` / `canceled ○` |
+| `{{.Duration}}` | 运行耗时 | `2m 35s` |
+| `{{.Branch}}` | 触发分支 | `main` |
+
+通知会在后台异步执行，不会阻塞界面操作。从当前进程启动的所有流水线运行都会被监控，即使切换到其他页面。
 
 ## 使用方法
 
@@ -212,6 +238,7 @@ flo/
 ├── internal/
 │   ├── api/                     # API 客户端
 │   ├── config/                  # 配置管理
+│   ├── notify/                  # 流水线完成通知
 │   └── tui/                     # TUI 界面组件
 │       ├── components/          # UI 组件（表格、模态框、搜索框等）
 │       ├── pages/               # 页面（流水线、分组、历史、日志）
