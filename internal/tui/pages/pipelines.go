@@ -61,6 +61,8 @@ type PipelinesKeyMap struct {
 	Home           key.Binding
 	End            key.Binding
 	Enter          key.Binding
+	ViewDetail     key.Binding
+	EditDetail     key.Binding
 	Run            key.Binding
 	ToggleBookmark key.Binding
 	FilterBookmark key.Binding
@@ -112,6 +114,14 @@ func DefaultPipelinesKeyMap() PipelinesKeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "history"),
+		),
+		ViewDetail: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "detail"),
+		),
+		EditDetail: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit"),
 		),
 		Run: key.NewBinding(
 			key.WithKeys("r"),
@@ -481,6 +491,34 @@ func (m PipelinesModel) Update(msg tea.Msg) (PipelinesModel, tea.Cmd) {
 				}
 			}
 
+		case key.Matches(msg, m.keys.ViewDetail):
+			if pipeline := m.SelectedPipeline(); pipeline != nil {
+				return m, func() tea.Msg {
+					return types.NavigateMsg{
+						Page: types.PagePipelineDetail,
+						Data: types.PipelineDetailContext{
+							PipelineID:    pipeline.PipelineID,
+							PipelineName:  pipeline.Name,
+							PendingAction: types.DetailActionView,
+						},
+					}
+				}
+			}
+
+		case key.Matches(msg, m.keys.EditDetail):
+			if pipeline := m.SelectedPipeline(); pipeline != nil {
+				return m, func() tea.Msg {
+					return types.NavigateMsg{
+						Page: types.PagePipelineDetail,
+						Data: types.PipelineDetailContext{
+							PipelineID:    pipeline.PipelineID,
+							PipelineName:  pipeline.Name,
+							PendingAction: types.DetailActionEdit,
+						},
+					}
+				}
+			}
+
 		case key.Matches(msg, m.keys.Run):
 			if pipeline := m.SelectedPipeline(); pipeline != nil {
 				m.loadingBranchInfo = true
@@ -661,6 +699,8 @@ func (m PipelinesModel) View() string {
 	// Help line
 	helpItems := []types.HelpItem{
 		{Key: "Enter", Desc: "history"},
+		{Key: "v", Desc: "detail"},
+		{Key: "e", Desc: "edit"},
 		{Key: "r", Desc: "run"},
 		{Key: "a", Desc: "running/all"},
 		{Key: "b", Desc: "bookmarks"},
