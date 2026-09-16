@@ -2,9 +2,7 @@ package types
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -74,100 +72,6 @@ func FormatTimeWithSeconds(t time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02 15:04:05")
-}
-
-// OpenInEditorCmd creates a command to open content in an external editor
-func OpenInEditorCmd(content, editor string) tea.Cmd {
-	if editor == "" {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("no editor configured")}
-		}
-	}
-
-	// Create a temporary file synchronously before returning the command
-	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flo_logs_%d.txt", time.Now().Unix()))
-
-	err := os.WriteFile(tmpFile, []byte(content), 0644)
-	if err != nil {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("failed to write temporary file: %w", err)}
-		}
-	}
-
-	// Parse editor command (might have arguments)
-	cmdParts := strings.Fields(editor)
-	if len(cmdParts) == 0 {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("invalid editor command")}
-		}
-	}
-
-	// Add the temporary file as the last argument
-	cmdParts = append(cmdParts, tmpFile)
-
-	// Create the command
-	c := exec.Command(cmdParts[0], cmdParts[1:]...)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-
-	// tea.ExecProcess returns a tea.Cmd, so return it directly
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		// Clean up temp file after editor closes
-		os.Remove(tmpFile)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("editor command failed: %w", err)}
-		}
-		return EditorClosedMsg{}
-	})
-}
-
-// OpenInPagerCmd creates a command to open content in an external pager
-func OpenInPagerCmd(content, pager string) tea.Cmd {
-	if pager == "" {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("no pager configured")}
-		}
-	}
-
-	// Create a temporary file synchronously before returning the command
-	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("flo_logs_%d.txt", time.Now().Unix()))
-
-	err := os.WriteFile(tmpFile, []byte(content), 0644)
-	if err != nil {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("failed to write temporary file: %w", err)}
-		}
-	}
-
-	// Parse pager command (might have arguments)
-	cmdParts := strings.Fields(pager)
-	if len(cmdParts) == 0 {
-		return func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("invalid pager command")}
-		}
-	}
-
-	// Add the temporary file as the last argument
-	cmdParts = append(cmdParts, tmpFile)
-
-	// Create the command
-	c := exec.Command(cmdParts[0], cmdParts[1:]...)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-
-	// tea.ExecProcess returns a tea.Cmd, so return it directly
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		// Clean up temp file after pager closes
-		os.Remove(tmpFile)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("pager command failed: %w", err)}
-		}
-		return PagerClosedMsg{}
-	})
 }
 
 // Clamp returns a value clamped between min and max

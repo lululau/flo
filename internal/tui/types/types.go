@@ -239,22 +239,9 @@ type CopiedMsg struct {
 }
 
 // --- External Editor/Pager Messages ---
-
-// OpenEditorMsg requests opening content in an editor
-type OpenEditorMsg struct {
-	Content string
-}
-
-// OpenPagerMsg requests opening content in a pager
-type OpenPagerMsg struct {
-	Content string
-}
-
-// EditorClosedMsg is sent when the editor is closed
-type EditorClosedMsg struct{}
-
-// PagerClosedMsg is sent when the pager is closed
-type PagerClosedMsg struct{}
+//
+// Editor/pager invocations use the exec-session mechanism in edit_session.go:
+// OpenEditorSessionCmd / OpenPagerSessionCmd emit ExecSessionFinishedMsg.
 
 // --- API Data Conversion Messages ---
 

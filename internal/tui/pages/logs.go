@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -409,15 +410,13 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.OpenEditor):
 			if m.viewport.GetContent() != "" {
-				editor := m.config.GetEditor()
-				return m, types.OpenInEditorCmd(m.viewport.GetContent(), editor)
+				return m, types.OpenEditorSessionCmd(m.viewport.GetContent(), m.config.GetEditor(), types.LogsTempFilePath(), true)
 			}
 			return m, nil
 
 		case key.Matches(msg, m.keys.OpenPager):
 			if m.viewport.GetContent() != "" {
-				pager := m.config.GetPager()
-				return m, types.OpenInPagerCmd(m.viewport.GetContent(), pager)
+				return m, types.OpenPagerSessionCmd(m.viewport.GetContent(), m.config.GetPager(), types.LogsTempFilePath())
 			}
 			return m, nil
 
@@ -504,6 +503,10 @@ func (m LogsModel) Update(msg tea.Msg) (LogsModel, tea.Cmd) {
 				return LogsTabsRefreshMsg{TabsData: m.tabsData}
 			})
 		}
+
+	case types.ExecSessionFinishedMsg:
+		// Logs viewing is read-only; clean up the temp file on exit.
+		os.Remove(msg.Path)
 
 	case types.CopyToClipboardMsg:
 		if msg.Success {
