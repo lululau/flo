@@ -133,13 +133,22 @@ FLO_DEBUG=1 ./flo
 # 使用代理
 export http_proxy=http://proxy.company.com:8080
 ./flo
+
+# CLI：查看/编辑流水线 YAML 定义（NeoVim 等外部编辑器）
+./flo pipeline view --pipeline my-pipe              # 输出 YAML 到 stdout（元信息在 stderr）
+./flo pipeline view --pipeline my-pipe --editor     # 用 $EDITOR 只读查看（vim/nvim 自动加 -R）
+./flo pipeline edit --pipeline my-pipe              # 编辑并写回（确认 → 校验 → 乐观检查 → PUT）
 ```
+
+> 流水线定义的查看/编辑需要个人访问令牌认证；经典（表单模式）流水线仅支持查看，写回仅支持 YAML 模式流水线。
 
 ## 快捷键说明
 
 ### 主界面（流水线列表）
 - `j/k` - 上下移动选择
 - `Enter` - 查看运行历史
+- `v` - 查看流水线 YAML 定义（详情页）
+- `e` - 编辑流水线 YAML 定义（加载后直接进入编辑器）
 - `r` - 运行流水线
 - `a` - 切换状态筛选（全部 ↔ 运行中+等待中）
 - `b` - 切换书签筛选（全部 ↔ 仅书签）
@@ -165,6 +174,18 @@ export http_proxy=http://proxy.company.com:8080
 - `0` - 跳转到第一页
 - `q` - 返回流水线列表
 - `Q` - 直接退出程序
+
+### 流水线详情（YAML 定义）
+- `j/k` - 上下滚动
+- `e` - 在外部编辑器中编辑并写回（仅 YAML 模式流水线；经典模式会提示只读）
+- `v` - 在外部编辑器中只读查看（vim/nvim 自动加 `-R`）
+- `s` - 另存 YAML 到本地文件
+- `y` - 复制 YAML 到剪贴板
+- `R` - 重新拉取定义
+- `q` - 返回流水线列表
+- `Q` - 直接退出程序
+
+编辑写回流程：编辑器退出后显示变更统计 → 确认 → 本地 YAML 语法校验 → 乐观检查（服务端版本未被他人在此期间更新）→ 写回。取消、校验失败或写回失败时，编辑内容保留在临时文件中（路径会在提示中给出），不会丢失。
 
 ### 日志查看
 - `j/k` - 上下滚动
