@@ -18,6 +18,22 @@ func LoadPipelinesCmd(client *api.Client, organizationID string) tea.Cmd {
 	return LoadPipelinesWithStatusCmd(client, organizationID, nil)
 }
 
+// LoadPipelineDefinitionCmd fetches a pipeline definition asynchronously.
+func LoadPipelineDefinitionCmd(client *api.Client, organizationID, pipelineID string) tea.Cmd {
+	return func() tea.Msg {
+		def, err := client.GetPipelineDefinition(organizationID, pipelineID)
+		return types.PipelineDefinitionLoadedMsg{Def: def, Err: err}
+	}
+}
+
+// SavePipelineDefinitionCmd writes a definition back asynchronously.
+func SavePipelineDefinitionCmd(client *api.Client, organizationID, pipelineID, name, content string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.UpdatePipelineYAML(organizationID, pipelineID, name, content)
+		return types.PipelineSaveResultMsg{Err: err}
+	}
+}
+
 // LoadPipelinesWithStatusCmd loads pipelines from the API with optional status filter
 func LoadPipelinesWithStatusCmd(client *api.Client, organizationID string, statusList []string) tea.Cmd {
 	return func() tea.Msg {

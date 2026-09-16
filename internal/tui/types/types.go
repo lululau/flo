@@ -15,6 +15,7 @@ const (
 	PageGroupsList
 	PageHistory
 	PageLogs
+	PagePipelineDetail
 )
 
 // String returns the string representation of PageType
@@ -28,6 +29,8 @@ func (p PageType) String() string {
 		return "Run History"
 	case PageLogs:
 		return "Logs"
+	case PagePipelineDetail:
+		return "Pipeline Detail"
 	default:
 		return "Unknown"
 	}
@@ -303,6 +306,35 @@ type PipelinesProgressMsg struct {
 	CurrentPage int
 	TotalPages  int
 	IsComplete  bool
+}
+
+// --- Pipeline Detail Messages ---
+
+// DetailPendingAction expresses the entry intent for the detail page.
+type DetailPendingAction int
+
+const (
+	DetailActionView DetailPendingAction = iota
+	DetailActionEdit
+)
+
+// PipelineDetailContext is the navigation data for the detail page.
+type PipelineDetailContext struct {
+	PipelineID    string
+	PipelineName  string
+	PendingAction DetailPendingAction
+}
+
+// PipelineDefinitionLoadedMsg is sent when a pipeline definition is fetched
+// (initial load, reload, or the optimistic-concurrency check re-GET).
+type PipelineDefinitionLoadedMsg struct {
+	Def *api.PipelineDefinition
+	Err error
+}
+
+// PipelineSaveResultMsg is sent after a write-back attempt.
+type PipelineSaveResultMsg struct {
+	Err error
 }
 
 // --- Context/State for Navigation ---

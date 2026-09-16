@@ -24,6 +24,7 @@ type Model struct {
 	groupsPage    pages.GroupsModel
 	historyPage   pages.HistoryModel
 	logsPage      pages.LogsModel
+	detailPage    pages.DetailModel
 
 	// Shared components
 	modal   components.ModalModel
@@ -84,6 +85,7 @@ func New(cfg *config.Config, client *api.Client) Model {
 		groupsPage:     pages.NewGroupsModel(),
 		historyPage:    pages.NewHistoryModel(),
 		logsPage:       pages.NewLogsModel(cfg),
+		detailPage:     pages.NewDetailModel(cfg),
 		modal:          components.NewModalModel(),
 		spinner:        components.NewSpinnerModel(),
 		currentPage:    types.PagePipelinesList,
@@ -306,6 +308,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, LoadRunStageTabCmd(m.client, m.organizationID, msg.TabsData, msg.TabIndex)
 		}
 
+	case types.PipelineDefinitionLoadedMsg:
+		var cmd tea.Cmd
+		m.detailPage, cmd = m.detailPage.ApplyDefinition(msg.Def, msg.Err)
+		cmds = append(cmds, cmd)
+
+	case types.PipelineSaveResultMsg:
+		var cmd tea.Cmd
+		m.detailPage, cmd = m.detailPage.ApplySaveResult(msg.Err)
+		cmds = append(cmds, cmd)
+
+	case pages.DetailReloadRequestMsg:
+		m.detailPage = m.detailPage.SetLoading(true)
+		cmds = append(cmds, LoadPipelineDefinitionCmd(m.client, m.organizationID, msg.PipelineID))
+
+	case pages.DetailCheckRequestMsg:
+		// Optimistic-concurrency check: re-fetch before writing.
+		cmds = append(cmds, LoadPipelineDefinitionCmd(m.client, m.organizationID, msg.PipelineID))
+
+	case pages.DetailSaveRequestMsg:
+		cmds = append(cmds, SavePipelineDefinitionCmd(m.client, m.organizationID, msg.PipelineID, msg.Name, msg.Content))
+
 	case types.TickMsg:
 		// Schedule next tick if logs page is running
 		// The actual refresh is triggered by LogsStagesRefreshMsg from logs page
@@ -353,6 +376,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+
+	case types.PagePipelineDetail:
+		var cmd tea.Cmd
+		m.detailPage, cmd = m.detailPage.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -376,6 +406,8 @@ func (m Model) View() string {
 		view = m.historyPage.View()
 	case types.PageLogs:
 		view = m.logsPage.View()
+	case types.PagePipelineDetail:
+		view = m.detailPage.View()
 	default:
 		view = "Unknown page"
 	}
@@ -435,6 +467,16 @@ func (m Model) navigateTo(page types.PageType, data interface{}) (Model, tea.Cmd
 				cmd = LoadRunStageTabsCmd(m.client, m.organizationID, ctx.PipelineID, ctx.PipelineName, ctx.RunID)
 			}
 		}
+
+	case types.PagePipelineDetail:
+		if ctx, ok := data.(types.PipelineDetailContext); ok {
+			m.detailPage = m.detailPage.SetPipeline(ctx.PipelineID, ctx.PipelineName)
+			m.detailPage = m.detailPage.SetLoading(true)
+			if ctx.PendingAction == types.DetailActionEdit {
+				m.detailPage = m.detailPage.QueueEditOnLoad()
+			}
+			cmd = LoadPipelineDefinitionCmd(m.client, m.organizationID, ctx.PipelineID)
+		}
 	}
 
 	m = m.updatePageSizes()
@@ -483,6 +525,11 @@ func (m Model) getPageData() interface{} {
 			RunID:        m.logsPage.GetRunID(),
 			Status:       m.logsPage.GetStatus(),
 		}
+	case types.PagePipelineDetail:
+		return types.PipelineDetailContext{
+			PipelineID:   m.detailPage.GetPipelineID(),
+			PipelineName: m.detailPage.GetPipelineName(),
+		}
 	}
 	return nil
 }
@@ -493,6 +540,7 @@ func (m Model) updatePageSizes() Model {
 	m.groupsPage = m.groupsPage.SetSize(m.width, m.height)
 	m.historyPage = m.historyPage.SetSize(m.width, m.height)
 	m.logsPage = m.logsPage.SetSize(m.width, m.height)
+	m.detailPage = m.detailPage.SetSize(m.width, m.height)
 	m.modal = m.modal.SetSize(m.width, m.height)
 	return m
 }
