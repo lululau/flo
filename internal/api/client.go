@@ -1764,7 +1764,7 @@ func (c *Client) GetPipelineRunLogs(organizationId string, pipelineIdStr string,
 								allLogs.WriteString("[yellow]" + strings.Repeat(".", 30) + "[-]\n")
 
 								// Get machine deployment log
-								machineLog, err := c.GetVMDeployMachineLog(organizationId, pipelineIdStr, deployOrderId, machine.MachineSn)
+								machineLog, err := c.GetVMDeployMachineLog(organizationId, pipelineIdStr, deployOrderId, machine.MachineSn, 0, 0)
 								if err != nil {
 									allLogs.WriteString(fmt.Sprintf("Error fetching machine log for %s: %v\n", machine.MachineSn, err))
 								} else {
@@ -3067,9 +3067,10 @@ func (c *Client) GetVMDeployOrder(organizationId, pipelineId, deployOrderId stri
 	return deployOrder, nil
 }
 
-// GetVMDeployMachineLog retrieves deployment log for a specific machine
+// GetVMDeployMachineLog retrieves deployment log for a specific machine.
+// If limit > 0, offset and limit query parameters (line-based) are appended to the request URL.
 // Based on: https://help.aliyun.com/zh/yunxiao/developer-reference/getvmdeploymachinelog
-func (c *Client) GetVMDeployMachineLog(organizationId, pipelineId, deployOrderId, machineSn string) (*VMDeployMachineLog, error) {
+func (c *Client) GetVMDeployMachineLog(organizationId, pipelineId, deployOrderId, machineSn string, offset int64, limit int) (*VMDeployMachineLog, error) {
 	if !c.useToken {
 		return nil, fmt.Errorf("GetVMDeployMachineLog only supports token-based authentication")
 	}
@@ -3081,6 +3082,9 @@ func (c *Client) GetVMDeployMachineLog(organizationId, pipelineId, deployOrderId
 	// API endpoint: GET https://{domain}/oapi/v1/flow/organizations/{organizationId}/pipelines/{pipelineId}/deploy/{deployOrderId}/machine/{machineSn}/log
 	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s/deploy/%s/machine/%s/log", organizationId, pipelineId, deployOrderId, machineSn)
 	url := fmt.Sprintf("https://%s%s", c.endpoint, path)
+	if limit > 0 {
+		url = fmt.Sprintf("%s?offset=%d&limit=%d", url, offset, limit)
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

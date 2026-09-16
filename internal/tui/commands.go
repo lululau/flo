@@ -220,35 +220,60 @@ func isVMDeploymentJob(job *api.Job) bool {
 	return false
 }
 
-func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, job *api.Job) (string, error) {
-	var deployOrderIDStr string
-
-	// Find deploy order ID from actions
+func extractDeployOrderId(job *api.Job) string {
 	for _, action := range job.Actions {
 		if action.Type == "vm-deploy-build" || action.Type == "VMDeploy" || action.Type == "GetVMDeployOrder" {
-			// Try to extract deployOrderId from action params
 			if id, ok := action.Params["deployOrderId"]; ok {
-				// Properly convert to integer string to avoid scientific notation
-				// JSON unmarshals numbers as float64, which fmt.Sprintf("%v") may format
-				// in scientific notation for large numbers (e.g., 5.4882198e+07)
-				// The API expects a plain integer string (e.g., "54882198")
 				switch v := id.(type) {
 				case float64:
-					deployOrderIDStr = strconv.FormatInt(int64(v), 10)
+					return strconv.FormatInt(int64(v), 10)
 				case string:
-					deployOrderIDStr = v
+					return v
 				case int64:
-					deployOrderIDStr = strconv.FormatInt(v, 10)
+					return strconv.FormatInt(v, 10)
 				case int:
-					deployOrderIDStr = strconv.Itoa(v)
+					return strconv.Itoa(v)
 				default:
-					deployOrderIDStr = fmt.Sprintf("%v", id)
+					return fmt.Sprintf("%v", id)
 				}
-				break
 			}
 		}
 	}
+	return ""
+}
 
+func countLines(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	var count int64
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			count++
+		}
+	}
+	if !strings.HasSuffix(s, "\n") {
+		count++
+	}
+	return count
+}
+
+func isYunxiaoRealtimeException(s string) bool {
+	return strings.Contains(s, "Log real-time query exception")
+}
+
+func isMachineTerminal(status string) bool {
+	s := strings.ToUpper(strings.TrimSpace(status))
+	switch s {
+	case "SUCCESS", "FAILED", "FAIL", "CANCELED", "CANCELLED", "TIMEOUT":
+		return true
+	default:
+		return false
+	}
+}
+
+func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, job *api.Job) (string, error) {
+	deployOrderIDStr := extractDeployOrderId(job)
 	if deployOrderIDStr == "" {
 		return "", fmt.Errorf("could not find deploy order ID")
 	}
@@ -266,7 +291,7 @@ func getVMDeploymentLogs(client *api.Client, organizationID, pipelineID string, 
 	for _, machine := range order.DeployMachineInfo.DeployMachines {
 		logs.WriteString(fmt.Sprintf("\n>> Machine: %s (Status: %s)\n", machine.IP, machine.Status))
 
-		machineLog, err := client.GetVMDeployMachineLog(organizationID, pipelineID, deployOrderIDStr, machine.MachineSn)
+		machineLog, err := client.GetVMDeployMachineLog(organizationID, pipelineID, deployOrderIDStr, machine.MachineSn, 0, 0)
 		if err != nil {
 			logs.WriteString(fmt.Sprintf("Failed to get machine log: %s\n", err))
 		} else {
@@ -612,22 +637,79 @@ func loadStageTabFull(client *api.Client, organizationID, pipelineID, runID stri
 	for _, job := range stage.Jobs {
 		jobIDStr := fmt.Sprintf("%d", job.ID)
 
-		// VM deploy jobs: fetch via dedicated APIs (full text each time).
+		// VM deploy jobs: fetch per-machine incremental logs
 		if isVMDeploymentJob(&job) {
-			logs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
-			if err != nil {
-				logs = fmt.Sprintf("Failed to get VM deployment logs: %s\n", err)
+			deployOrderIDStr := extractDeployOrderId(&job)
+			if deployOrderIDStr == "" {
+				entries = append(entries, types.StageLogEntry{
+					Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: 0, MachineSn: ""},
+					JobID:      job.ID,
+					JobName:    job.Name,
+					StepIndex:  0,
+					StepName:   job.Name,
+					IsVMDeploy: true,
+					Status:     job.Status,
+					Logs:       "Could not find deploy order ID\n",
+				})
+				continue
 			}
-			entries = append(entries, types.StageLogEntry{
-				Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: 0},
-				JobID:      job.ID,
-				JobName:    job.Name,
-				StepIndex:  0,
-				StepName:   job.Name,
-				IsVMDeploy: true,
-				Status:     job.Status,
-				Logs:       logs,
-			})
+
+			order, err := client.GetVMDeployOrder(organizationID, pipelineID, deployOrderIDStr)
+			if err != nil || order == nil || len(order.DeployMachineInfo.DeployMachines) == 0 {
+				errMsg := ""
+				if err != nil {
+					errMsg = fmt.Sprintf("Failed to get deploy order: %s\n", err)
+				} else {
+					errMsg = "No deployment machines found in order\n"
+				}
+				entries = append(entries, types.StageLogEntry{
+					Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: 0, MachineSn: ""},
+					JobID:      job.ID,
+					JobName:    job.Name,
+					StepIndex:  0,
+					StepName:   job.Name,
+					IsVMDeploy: true,
+					Status:     job.Status,
+					Logs:       errMsg,
+				})
+				continue
+			}
+
+			for i, machine := range order.DeployMachineInfo.DeployMachines {
+				stepName := fmt.Sprintf("主机: %s (IP: %s)", machine.MachineSn, machine.IP)
+				if machine.IP == "" {
+					stepName = fmt.Sprintf("主机: %s", machine.MachineSn)
+				}
+
+				entry := types.StageLogEntry{
+					Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: i, MachineSn: machine.MachineSn},
+					JobID:      job.ID,
+					JobName:    job.Name,
+					StepIndex:  i,
+					StepName:   stepName,
+					IsVMDeploy: true,
+					MachineSn:  machine.MachineSn,
+					MachineIP:  machine.IP,
+					Offset:     0,
+					HasMore:    true,
+					Status:     machine.Status,
+					Logs:       "",
+				}
+
+				machineLog, err := client.GetVMDeployMachineLog(organizationID, pipelineID, deployOrderIDStr, machine.MachineSn, 0, 100000)
+				if err == nil && machineLog != nil && machineLog.DeployLog != "" {
+					if !isYunxiaoRealtimeException(machineLog.DeployLog) {
+						entry.Logs = machineLog.DeployLog
+						entry.Offset = countLines(machineLog.DeployLog)
+					}
+				}
+
+				if isMachineTerminal(machine.Status) {
+					entry.HasMore = false
+				}
+
+				entries = append(entries, entry)
+			}
 			continue
 		}
 
@@ -640,7 +722,7 @@ func loadStageTabFull(client *api.Client, organizationID, pipelineID, runID stri
 				jobLog = fmt.Sprintf("Failed to get job log: %s\n", jerr)
 			}
 			entries = append(entries, types.StageLogEntry{
-				Key:       types.StageLogEntryKey{JobID: job.ID, StepIndex: 0},
+				Key:       types.StageLogEntryKey{JobID: job.ID, StepIndex: 0, MachineSn: ""},
 				JobID:     job.ID,
 				JobName:   job.Name,
 				StepIndex: 0,
@@ -653,27 +735,35 @@ func loadStageTabFull(client *api.Client, organizationID, pipelineID, runID stri
 
 		for _, node := range jobSteps.BuildProcessNodes {
 			entry := types.StageLogEntry{
-				Key:       types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex},
-				JobID:     job.ID,
-				JobName:   job.Name,
-				StepIndex: node.StepIndex,
-				StepName:  node.StepName,
+				Key:        types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex, MachineSn: ""},
+				JobID:      job.ID,
+				JobName:    job.Name,
+				StepIndex:  node.StepIndex,
+				StepName:   node.StepName,
 				IsVMDeploy: false,
-				BuildId:   jobSteps.BuildId,
-				Offset:    0,
-				HasMore:   true,
-				Status:    node.Status,
-				Logs:      "",
+				BuildId:    jobSteps.BuildId,
+				Offset:     0,
+				HasMore:    true,
+				Status:     node.Status,
+				Logs:       "",
 			}
 
 			stepLog, serr := client.GetPipelineJobStepLog(
 				organizationID, pipelineID, runID, jobIDStr,
 				node.StepIndex, jobSteps.BuildId, 0, 100000,
 			)
-			if serr == nil && stepLog != nil {
+			if serr == nil && stepLog != nil && !isYunxiaoRealtimeException(stepLog.Logs) {
 				entry.Logs = stepLog.Logs
-				entry.Offset = stepLog.Last
-				entry.HasMore = stepLog.More
+				if stepLog.Last > 0 {
+					entry.Offset = stepLog.Last
+				} else if stepLog.Logs != "" {
+					entry.Offset = countLines(stepLog.Logs)
+				}
+				if node.Finish && (!stepLog.More || stepLog.Logs == "") {
+					entry.HasMore = false
+				} else {
+					entry.HasMore = true
+				}
 			}
 
 			entries = append(entries, entry)
@@ -720,31 +810,62 @@ func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, 
 		jobIDStr := fmt.Sprintf("%d", job.ID)
 
 		if isVMDeploymentJob(&job) {
-			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: 0}
-			idx := ensureEntry(types.StageLogEntry{
-				Key:        key,
-				JobID:      job.ID,
-				JobName:    job.Name,
-				StepIndex:  0,
-				StepName:   job.Name,
-				IsVMDeploy: true,
-			})
-			tab.Entries[idx].JobName = job.Name
-			tab.Entries[idx].StepName = job.Name
-			tab.Entries[idx].Status = job.Status
+			deployOrderIDStr := extractDeployOrderId(&job)
+			if deployOrderIDStr == "" {
+				continue
+			}
 
-			// VM deploy logs are fetched as a whole; refresh while running (and when empty).
-			if strings.ToUpper(job.Status) == "RUNNING" || tab.Entries[idx].Logs == "" {
-				logs, err := getVMDeploymentLogs(client, organizationID, pipelineID, &job)
-				if err != nil {
-					// Only write error if we have no logs yet.
-					if tab.Entries[idx].Logs == "" {
-						tab.Entries[idx].Logs = fmt.Sprintf("Failed to get VM deployment logs: %s\n", err)
-						hasNew = true
-					}
-				} else if logs != "" && logs != tab.Entries[idx].Logs {
-					tab.Entries[idx].Logs = logs
+			order, err := client.GetVMDeployOrder(organizationID, pipelineID, deployOrderIDStr)
+			if err != nil || order == nil {
+				continue
+			}
+
+			for i, machine := range order.DeployMachineInfo.DeployMachines {
+				key := types.StageLogEntryKey{JobID: job.ID, StepIndex: i, MachineSn: machine.MachineSn}
+				stepName := fmt.Sprintf("主机: %s (IP: %s)", machine.MachineSn, machine.IP)
+				if machine.IP == "" {
+					stepName = fmt.Sprintf("主机: %s", machine.MachineSn)
+				}
+
+				idx := ensureEntry(types.StageLogEntry{
+					Key:        key,
+					JobID:      job.ID,
+					JobName:    job.Name,
+					StepIndex:  i,
+					StepName:   stepName,
+					IsVMDeploy: true,
+					MachineSn:  machine.MachineSn,
+					MachineIP:  machine.IP,
+					Offset:     0,
+					HasMore:    true,
+				})
+
+				tab.Entries[idx].JobName = job.Name
+				tab.Entries[idx].StepName = stepName
+				tab.Entries[idx].Status = machine.Status
+
+				shouldFetch := !isMachineTerminal(machine.Status) || tab.Entries[idx].HasMore || tab.Entries[idx].Logs == ""
+				if !shouldFetch {
+					continue
+				}
+
+				const vmLogChunkLimit = 1000
+				machineLog, err := client.GetVMDeployMachineLog(
+					organizationID, pipelineID, deployOrderIDStr, machine.MachineSn,
+					tab.Entries[idx].Offset, vmLogChunkLimit,
+				)
+				if err != nil || machineLog == nil {
+					continue
+				}
+
+				if machineLog.DeployLog != "" && !isYunxiaoRealtimeException(machineLog.DeployLog) {
+					tab.Entries[idx].Logs += machineLog.DeployLog
+					tab.Entries[idx].Offset += countLines(machineLog.DeployLog)
 					hasNew = true
+				} else {
+					if isMachineTerminal(machine.Status) {
+						tab.Entries[idx].HasMore = false
+					}
 				}
 			}
 			continue
@@ -758,7 +879,7 @@ func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, 
 		jobSteps, err := client.GetPipelineJobSteps(organizationID, pipelineID, runID, jobIDStr)
 		if err != nil || jobSteps == nil || len(jobSteps.BuildProcessNodes) == 0 {
 			// Fallback: refresh job-level log while running.
-			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: 0}
+			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: 0, MachineSn: ""}
 			idx := ensureEntry(types.StageLogEntry{
 				Key:       key,
 				JobID:     job.ID,
@@ -781,19 +902,19 @@ func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, 
 		}
 
 		for _, node := range jobSteps.BuildProcessNodes {
-			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex}
+			key := types.StageLogEntryKey{JobID: job.ID, StepIndex: node.StepIndex, MachineSn: ""}
 			idx := ensureEntry(types.StageLogEntry{
-				Key:       key,
-				JobID:     job.ID,
-				JobName:   job.Name,
-				StepIndex: node.StepIndex,
-				StepName:  node.StepName,
+				Key:        key,
+				JobID:      job.ID,
+				JobName:    job.Name,
+				StepIndex:  node.StepIndex,
+				StepName:   node.StepName,
 				IsVMDeploy: false,
-				BuildId:   jobSteps.BuildId,
-				Offset:    0,
-				HasMore:   true,
-				Status:    node.Status,
-				Logs:      "",
+				BuildId:    jobSteps.BuildId,
+				Offset:     0,
+				HasMore:    true,
+				Status:     node.Status,
+				Logs:       "",
 			})
 
 			// Keep names/buildId/status up to date.
@@ -802,23 +923,26 @@ func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, 
 			tab.Entries[idx].BuildId = jobSteps.BuildId
 			tab.Entries[idx].Status = node.Status
 
-			// Fetch logs for running steps, and drain remaining logs for finished steps.
-			shouldFetch := node.Running || (node.Finish && tab.Entries[idx].HasMore)
+			// Fetch logs for running steps, or if the step is finished but not yet marked complete
+			shouldFetch := node.Running || (node.Finish && tab.Entries[idx].HasMore) || (node.Finish && tab.Entries[idx].Logs == "")
 			if !shouldFetch {
 				continue
 			}
 
-			const logChunkLimit = 5000
+			const logChunkLimit = 1000
 			const maxChunksPerTick = 3
 
-			offset := tab.Entries[idx].Offset
 			for c := 0; c < maxChunksPerTick; c++ {
-				prevOffset := offset
+				prevOffset := tab.Entries[idx].Offset
 				stepLog, serr := client.GetPipelineJobStepLog(
 					organizationID, pipelineID, runID, jobIDStr,
-					node.StepIndex, jobSteps.BuildId, offset, logChunkLimit,
+					node.StepIndex, jobSteps.BuildId, tab.Entries[idx].Offset, logChunkLimit,
 				)
 				if serr != nil || stepLog == nil {
+					break
+				}
+
+				if isYunxiaoRealtimeException(stepLog.Logs) {
 					break
 				}
 
@@ -827,14 +951,25 @@ func refreshStageTabIncremental(client *api.Client, organizationID, pipelineID, 
 					hasNew = true
 				}
 
-				tab.Entries[idx].Offset = stepLog.Last
-				tab.Entries[idx].HasMore = stepLog.More
-				offset = stepLog.Last
-
-				if offset == prevOffset {
-					break
+				// Advance offset:
+				// If server returns a valid last position (> 0), use it.
+				// If server returns last == -1 (end of buffer), advance by the number of lines returned.
+				// NEVER assign -1 to Offset!
+				if stepLog.Last > 0 {
+					tab.Entries[idx].Offset = stepLog.Last
+				} else if stepLog.Logs != "" {
+					tab.Entries[idx].Offset += countLines(stepLog.Logs)
 				}
-				if !stepLog.More {
+
+				// Manage HasMore:
+				if node.Finish && (!stepLog.More || stepLog.Logs == "") {
+					tab.Entries[idx].HasMore = false
+				} else if node.Running {
+					tab.Entries[idx].HasMore = true
+				}
+
+				// If offset did not advance or no more logs in buffer for this tick, stop chunking
+				if tab.Entries[idx].Offset == prevOffset || !stepLog.More {
 					break
 				}
 			}

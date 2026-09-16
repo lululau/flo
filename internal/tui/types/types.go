@@ -407,24 +407,27 @@ const (
 )
 
 // StageLogEntryKey uniquely identifies a log stream within a stage.
-// For non-step jobs, StepIndex is 0.
+// For non-step jobs without machine differentiation, StepIndex is 0.
 type StageLogEntryKey struct {
 	JobID     int64
 	StepIndex int
+	MachineSn string
 }
 
-// StageLogEntry stores log state for a single (job, step) within a stage.
+// StageLogEntry stores log state for a single (job, step, or machine) within a stage.
 type StageLogEntry struct {
-	Key       StageLogEntryKey
-	JobID     int64
-	JobName   string
-	StepIndex int
-	StepName  string
+	Key        StageLogEntryKey
+	JobID      int64
+	JobName    string
+	StepIndex  int
+	StepName   string
 	IsVMDeploy bool
+	MachineSn  string
+	MachineIP  string
 
-	BuildId  int64
-	Offset   int64
-	HasMore  bool
+	BuildId int64
+	Offset  int64
+	HasMore bool
 
 	Status string
 	Logs   string

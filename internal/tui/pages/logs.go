@@ -718,7 +718,9 @@ func buildStageTabLogText(tab types.StageTab) string {
 		}
 
 		// Step header (skip for pure job-level log entries where StepName == JobName)
-		if e.StepName != "" && e.StepName != e.JobName {
+		if e.IsVMDeploy {
+			b.WriteString(fmt.Sprintf("--- %s [Status: %s] ---\n", e.StepName, e.Status))
+		} else if e.StepName != "" && e.StepName != e.JobName {
 			b.WriteString(fmt.Sprintf("--- Step: %s ---\n", e.StepName))
 		}
 
