@@ -132,11 +132,20 @@ type VMDeployMachineLog struct {
 
 // Client is a client for interacting with the Aliyun DevOps API.
 type Client struct {
-	sdkClient           *devops_rdc.Client // Changed to devops_rdc
+	sdkClient           *devops_rdc.Client // Changed to devops-rdc
 	httpClient          *http.Client       // For personal access token requests
 	endpoint            string             // API endpoint for token-based requests
 	personalAccessToken string             // Personal access token
 	useToken            bool               // Whether to use token-based authentication
+	baseURLOverride     string             // Test hook: overrides https://<endpoint> when set
+}
+
+// baseURL returns the base URL for token-based REST requests.
+func (c *Client) baseURL() string {
+	if c.baseURLOverride != "" {
+		return c.baseURLOverride
+	}
+	return "https://" + c.endpoint
 }
 
 var debugLogger *log.Logger
@@ -814,13 +823,61 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// GetPipelineDetails retrieves details for a specific pipeline.
-func (c *Client) GetPipelineDetails(organizationId string, pipelineId string) (*Pipeline, error) {
-	// request := devops_rdc.CreateGetPipelineRequest() // Or similar
-	// request.OrgId = organizationId
-	// request.PipelineId = pipelineId
-	// ...
-	return nil, fmt.Errorf("not implemented: GetPipelineDetails")
+// PipelineDefinition is the viewable/editable definition of a pipeline.
+// FlowYAML is populated for both YAML-mode and classic-mode pipelines;
+// IsYAMLMode gates whether write-back is allowed.
+type PipelineDefinition struct {
+	PipelineID string
+	Name       string
+	IsYAMLMode bool   // type == "PIPELINEASCODE"
+	FlowYAML   string // pipelineConfig.flow
+	UpdateTime int64  // millis, for optimistic concurrency check before write-back
+}
+
+// GetPipelineDefinition fetches a pipeline's definition via the personal
+// access token REST API.
+// https://help.aliyun.com/zh/yunxiao/developer-reference/getpipeline-get-pipeline-details
+func (c *Client) GetPipelineDefinition(organizationId string, pipelineId string) (*PipelineDefinition, error) {
+	if !c.useToken {
+		return nil, fmt.Errorf("viewing/editing pipeline definitions requires a personal access token (configure token in ~/.flo/config.yml)")
+	}
+
+	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s", organizationId, pipelineId)
+	result, err := c.makeTokenRequest("GET", path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pipeline definition: %w", err)
+	}
+
+	def := &PipelineDefinition{PipelineID: pipelineId}
+	if v, ok := result["type"].(string); ok && v == "PIPELINEASCODE" {
+		def.IsYAMLMode = true
+	}
+	def.Name = getStringField(result, "name")
+	if v, ok := result["updateTime"].(float64); ok {
+		def.UpdateTime = int64(v)
+	}
+	if cfg, ok := result["pipelineConfig"].(map[string]interface{}); ok {
+		def.FlowYAML = getStringField(cfg, "flow")
+	}
+	if def.FlowYAML == "" {
+		return nil, fmt.Errorf("pipeline %s has no flow configuration in the API response", pipelineId)
+	}
+	return def, nil
+}
+
+// UpdatePipelineYAML writes a YAML-mode pipeline's definition back to the server.
+// https://help.aliyun.com/zh/yunxiao/developer-reference/updatepipeline-update-pipeline
+func (c *Client) UpdatePipelineYAML(organizationId string, pipelineId string, name string, content string) error {
+	if !c.useToken {
+		return fmt.Errorf("viewing/editing pipeline definitions requires a personal access token (configure token in ~/.flo/config.yml)")
+	}
+
+	path := fmt.Sprintf("/oapi/v1/flow/organizations/%s/pipelines/%s", organizationId, pipelineId)
+	body := map[string]string{"content": content, "name": name}
+	if _, err := c.makeTokenRequestRaw("PUT", path, body); err != nil {
+		return fmt.Errorf("failed to update pipeline: %w", err)
+	}
+	return nil
 }
 
 // RunPipeline triggers a pipeline run using the ExecutePipeline SDK method.
@@ -2477,13 +2534,35 @@ func (c *Client) ListPipelineGroups(organizationId string) ([]PipelineGroup, err
 	return groups, nil
 }
 
-// makeTokenRequest makes an HTTP request using personal access token authentication
+// makeTokenRequest makes an HTTP request using personal access token
+// authentication and unmarshals the JSON object response.
 func (c *Client) makeTokenRequest(method, path string, body interface{}) (map[string]interface{}, error) {
 	if !c.useToken {
 		return nil, fmt.Errorf("client not configured for token-based requests")
 	}
 
-	url := fmt.Sprintf("https://%s%s", c.endpoint, path)
+	respBody, err := c.makeTokenRequestRaw(method, path, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w. Response body: %.500s", err, string(respBody))
+	}
+
+	return result, nil
+}
+
+// makeTokenRequestRaw makes an HTTP request using personal access token
+// authentication and returns the raw response body. Used for endpoints whose
+// responses are not JSON objects (e.g. UpdatePipeline returns a bare boolean).
+func (c *Client) makeTokenRequestRaw(method, path string, body interface{}) ([]byte, error) {
+	if !c.useToken {
+		return nil, fmt.Errorf("client not configured for token-based requests")
+	}
+
+	url := fmt.Sprintf("%s%s", c.baseURL(), path)
 
 	var reqBody io.Reader
 	if body != nil {
@@ -2535,12 +2614,7 @@ func (c *Client) makeTokenRequest(method, path string, body interface{}) (map[st
 		return nil, fmt.Errorf("received HTML response instead of JSON (status %d). This usually indicates authentication failure or wrong endpoint. Response preview: %.200s", resp.StatusCode, string(respBody))
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w. Response body: %.500s", err, string(respBody))
-	}
-
-	return result, nil
+	return respBody, nil
 }
 
 // listPipelinesWithToken retrieves pipelines using personal access token authentication
