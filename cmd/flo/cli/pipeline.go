@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"flo/internal/api"
 	"flo/internal/config"
+	"flo/internal/editutil"
 )
 
 // newClient creates an API client from the given config.
@@ -47,6 +50,8 @@ func init() {
 	pipelineCmd.AddCommand(pipelineStatusCmd)
 	pipelineCmd.AddCommand(pipelineLogsCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)
+	pipelineCmd.AddCommand(pipelineViewCmd)
+	pipelineCmd.AddCommand(pipelineEditCmd)
 }
 
 // =========================================================================
@@ -899,4 +904,186 @@ func init() {
 	pipelineStopCmd.Flags().StringVar(&stopRunID, "run-id", "", "Pipeline run ID (required)")
 	pipelineStopCmd.MarkFlagRequired("pipeline")
 	pipelineStopCmd.MarkFlagRequired("run-id")
+}
+
+// =========================================================================
+// flo pipeline view
+// =========================================================================
+
+var (
+	viewPipeline string
+	viewInEditor bool
+)
+
+var pipelineViewCmd = &cobra.Command{
+	Use:   "view",
+	Short: "View a pipeline's YAML definition",
+	Long:  "Fetch and print a pipeline's YAML definition. Works for both YAML-mode and classic-mode pipelines (classic mode prints the server-generated representation). Meta info goes to stderr so stdout stays pipe-friendly.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		client, err := newClient(cfg)
+		if err != nil {
+			return err
+		}
+		org := getOrgID(cfg)
+
+		pipelineID, err := resolvePipelineID(client, org, viewPipeline)
+		if err != nil {
+			return err
+		}
+
+		def, err := client.GetPipelineDefinition(org, pipelineID)
+		if err != nil {
+			return fmt.Errorf("failed to get pipeline definition: %w", err)
+		}
+
+		mode := "classic"
+		if def.IsYAMLMode {
+			mode = "yaml"
+		}
+		if outputFormat == "json" {
+			return Output(map[string]interface{}{
+				"pipelineId": def.PipelineID,
+				"name":       def.Name,
+				"mode":       mode,
+				"updateTime": def.UpdateTime,
+				"flow":       def.FlowYAML,
+			}, nil, nil)
+		}
+
+		fmt.Fprintf(os.Stderr, "pipeline: %s (id %s, mode: %s, updated %s)\n",
+			def.Name, def.PipelineID, mode, time.Unix(def.UpdateTime/1000, 0).Format("2006-01-02 15:04"))
+
+		if viewInEditor {
+			path := editutil.TempFilePath(def.PipelineID)
+			if err := os.WriteFile(path, []byte(def.FlowYAML), 0644); err != nil {
+				return fmt.Errorf("failed to write temporary file: %w", err)
+			}
+			editorArgs := editutil.BuildEditorArgs(cfg.GetEditor(), path, true)
+			c := exec.Command(editorArgs[0], editorArgs[1:]...)
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			runErr := c.Run()
+			os.Remove(path)
+			return runErr
+		}
+
+		fmt.Print(def.FlowYAML)
+		return nil
+	},
+}
+
+func init() {
+	pipelineViewCmd.Flags().StringVar(&viewPipeline, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineViewCmd.MarkFlagRequired("pipeline")
+	pipelineViewCmd.Flags().BoolVar(&viewInEditor, "editor", false, "Open in $EDITOR read-only instead of printing")
+}
+
+// =========================================================================
+// flo pipeline edit
+// =========================================================================
+
+var editPipelineFlag string
+
+var pipelineEditCmd = &cobra.Command{
+	Use:   "edit",
+	Short: "Edit a YAML-mode pipeline's definition in $EDITOR and write it back",
+	Long:  "Fetch the definition, open it in $EDITOR, and on save confirm, validate, re-check the server version, and PUT it back. Classic (form-mode) pipelines are refused: the update API only supports YAML-mode pipelines.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		client, err := newClient(cfg)
+		if err != nil {
+			return err
+		}
+		org := getOrgID(cfg)
+
+		pipelineID, err := resolvePipelineID(client, org, editPipelineFlag)
+		if err != nil {
+			return err
+		}
+
+		def, err := client.GetPipelineDefinition(org, pipelineID)
+		if err != nil {
+			return fmt.Errorf("failed to get pipeline definition: %w", err)
+		}
+		if !def.IsYAMLMode {
+			return fmt.Errorf("pipeline %q is a classic (form-mode) pipeline; the update API only supports YAML-mode pipelines (use 'flo pipeline view')", def.Name)
+		}
+
+		path := editutil.TempFilePath(pipelineID)
+		if err := os.WriteFile(path, []byte(def.FlowYAML), 0644); err != nil {
+			return fmt.Errorf("failed to write temporary file: %w", err)
+		}
+
+		editorArgs := editutil.BuildEditorArgs(cfg.GetEditor(), path, false)
+		c := exec.Command(editorArgs[0], editorArgs[1:]...)
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := c.Run(); err != nil {
+			// The editor may still have written the file; read it back
+			fmt.Fprintf(os.Stderr, "editor exited with error: %v\n", err)
+		}
+
+		edited, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read back edited file: %w", err)
+		}
+		if string(edited) == def.FlowYAML {
+			os.Remove(path)
+			fmt.Println("Not modified.")
+			return nil
+		}
+
+		if added, removed, ok := editutil.LineDiffStats(def.FlowYAML, string(edited)); ok {
+			fmt.Printf("Modified: +%d / -%d lines\n", added, removed)
+		} else {
+			fmt.Println("Modified.")
+		}
+		if !confirm("Write back to Yunxiao?") {
+			fmt.Printf("Cancelled. Your edits are kept at:\n%s\n", path)
+			return nil
+		}
+
+		if err := editutil.ValidateYAML(string(edited)); err != nil {
+			return fmt.Errorf("invalid YAML (nothing was written; edits kept at %s):\n%w", path, err)
+		}
+
+		// Optimistic check: fail closed, use the freshest name
+		fresh, err := client.GetPipelineDefinition(org, pipelineID)
+		if err != nil {
+			return fmt.Errorf("pre-write check failed (nothing was written; edits kept at %s): %w", path, err)
+		}
+		if fresh.UpdateTime != def.UpdateTime && !confirm("The pipeline changed on the server after you started editing. Overwrite anyway?") {
+			fmt.Printf("Cancelled. Your edits are kept at:\n%s\n", path)
+			return nil
+		}
+
+		if err := client.UpdatePipelineYAML(org, pipelineID, fresh.Name, string(edited)); err != nil {
+			return fmt.Errorf("failed to update pipeline (edits kept at %s): %w", path, err)
+		}
+		os.Remove(path)
+		fmt.Println("Pipeline definition updated.")
+		return nil
+	},
+}
+
+// confirm asks a yes/no question on stdin. Default is No.
+func confirm(question string) bool {
+	fmt.Printf("%s [y/N]: ", question)
+	reader := bufio.NewReader(os.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes"
+}
+
+func init() {
+	pipelineEditCmd.Flags().StringVar(&editPipelineFlag, "pipeline", "", "Pipeline name or ID (required)")
+	pipelineEditCmd.MarkFlagRequired("pipeline")
 }
