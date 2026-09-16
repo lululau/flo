@@ -108,7 +108,7 @@ func OpenEditorSessionCmd(content, editor string, opts EditorSessionOpts) tea.Cm
 ```
 
 - Writes the temp file synchronously, suspends via `tea.ExecProcess`, on exit **reads the file back** and hands `(path, err)` to `OnExit` — the caller owns file lifecycle.
-- The logs page `e`/`v` keys migrate to this implementation (read-only view path deletes the file on exit; behavior unchanged), retiring the dead `EditorClosedMsg`/`PagerClosedMsg` handling.
+- The logs page migrates onto this mechanism with behavior unchanged: `e` (editor) uses the session with read-back discarded and the file deleted on exit; `v` keeps launching the **pager** (`config.GetPager()`) through the same session mechanism (file deleted on exit, no read-back). This retires the dead `EditorClosedMsg`/`PagerClosedMsg` handling.
 - If the editor exits non-zero, the file is still read back (preserve the user's edits); only a read failure is an error.
 
 ## TUI: Pipeline Detail Page
@@ -176,19 +176,21 @@ EditorSessionFinished (path, content)
 ```
 
 - **Optimistic check fails closed**: if the pre-write GET errors, abort the write-back with an error (retryable) rather than blindly overwriting.
+- **`name` sent in the PUT always comes from the freshest fetch**: normally the definition loaded by the detail page; when the optimistic check re-GETs and the user confirms an overwrite, use that re-GET's `name` (never the stale one — a concurrent rename must not be reverted). The CLI edit flow follows the same rule.
 - Diff stats are skipped (message says only "modified") when the content exceeds 5000 lines.
 - On write success the definition is re-fetched because the server may normalize the YAML.
 
 ## CLI Subcommands
 
-### `flo pipeline view <name|id>`
+### `flo pipeline view --pipeline <name|id>`
 
-- Resolves via the existing `resolvePipelineID`.
-- Default: pure YAML to **stdout**, meta info (name/mode/ID/update time) to stderr — pipe-friendly (`flo pipeline view my-pipe | bat -lyaml`).
+- Uses the required `--pipeline` flag (name or ID), matching every existing subcommand (`history`/`run`/`status`/`logs`/`stop`); resolves via the existing `resolvePipelineID`.
+- Default: pure YAML to **stdout**, meta info (name/mode/ID/update time) to stderr — pipe-friendly (`flo pipeline view --pipeline my-pipe | bat -lyaml`).
 - `--editor` flag: external read-only view, same experience as the TUI `v` key.
+- `-o/--output json`: full `PipelineDefinition` object (name, mode, updateTime, flow) as JSON, consistent with the shared `Output` helper used by existing subcommands.
 - Works for both modes (viewing is universal).
 
-### `flo pipeline edit <name|id>`
+### `flo pipeline edit --pipeline <name|id>`
 
 - Classic mode: refuses with an explanation and points to `view`.
 - Sequential flow (plain Go, no bubbletea):
